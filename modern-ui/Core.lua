@@ -556,7 +556,7 @@ SlashCmdList["MODERNUI"] = function(msg)
             ns:Print("under mouse: " .. (#chain > 0 and table.concat(chain, " < ") or "nothing"))
         end)
     elseif cmd == "food" and ns.Consumables then
-        ns.Consumables:Debug()
+        ns.Consumables:Debug(rest == "all")
     elseif cmd == "chat" and ns.Chat and ns.Chat.Debug then
         ns.Chat:Debug()
     else

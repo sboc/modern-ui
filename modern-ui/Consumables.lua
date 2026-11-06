@@ -301,12 +301,35 @@ function K:Queue(delay)
     end)
 end
 
--- /mui food: what would be picked, and why
-function K:Debug()
+-- /mui food: what would be picked, and why. "/mui food all" also dumps every food / drink in the bags with
+-- its parsed numbers and tooltip text, to see what the parser makes of an item.
+function K:Debug(verbose)
     local best = K:Scan()
     for _, kind in ipairs({ "food", "water" }) do
         local p = best[kind]
         ns:Print(string.format("%s: %s", kind, p and p.link or "none"))
+    end
+    if not verbose then return end
+    local seen = {}
+    local first, last = bagRange()
+    for bag = first, last do
+        for slot = 1, numSlots(bag) do
+            local si = slotInfo(bag, slot)
+            local link, id = si and si.hyperlink, si and si.itemID
+            if link and id and not seen[id] then
+                seen[id] = true
+                local info, wait = classify(id, link)
+                if wait then
+                    ns:Print(link, "- tooltip not loaded yet")
+                elseif info then
+                    local cats = {}
+                    for key, amt in pairs(info.cats) do cats[#cats + 1] = key .. "=" .. amt end
+                    ns:Print(link, string.format("hp %d, mana %d, minLevel %d, stats: %s",
+                        info.healthAmt, info.manaAmt, itemMinLevel(link), #cats > 0 and table.concat(cats, ",") or "NONE"))
+                    ns:Print("   ", textCache[id] or "?")
+                end
+            end
+        end
     end
 end
 
