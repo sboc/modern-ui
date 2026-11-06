@@ -80,6 +80,7 @@ ns.defaults = {
         enabled = true,
         iconZoom = true,
         borders = true,
+        swingTimer = true,
         bars = {
             [1] = merge(barBase),
             [2] = merge(barBase),

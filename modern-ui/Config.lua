@@ -119,6 +119,7 @@ local function actionBarGeneral()
         Text("Turning this off needs a /reload to bring the Blizzard bars back."),
         Check("actionbars.iconZoom", "Crop icon edges"),
         Check("actionbars.borders", "Draw button borders"),
+        Check("actionbars.swingTimer", "Swing timer on the Attack button"),
         Header("Layout"),
         Text("Use 'Unlock frames' on the General page (or /mui unlock) to drag bars into place."),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),

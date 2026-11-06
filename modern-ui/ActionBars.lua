@@ -490,6 +490,147 @@ fader:SetScript("OnUpdate", function(_, elapsed)
 end)
 
 ----------------------------------------------------------------------
+-- Swing timer: countdown to the next auto attack on the Attack button
+----------------------------------------------------------------------
+-- Addons cannot register for the combat log (blocked as a Blizzard-only action), so the timer is an
+-- estimate: one swing when auto attack starts, then repeating every weapon speed. It can drift from
+-- the real swings (parries, resets), but needs no protected calls.
+local swing = { start = nil, speed = 2, estimated = true }
+local swingButtons, swingDirty = {}, true
+local swingFrame = CreateFrame("Frame")
+
+local function swingEnabled()
+    return ns.db and ns.db.actionbars and ns.db.actionbars.swingTimer
+end
+
+-- 12.x returns "secret" numbers from UnitAttackSpeed in some situations (no compare / arithmetic on them,
+-- and touching one taints the addon): only clean numbers are ever stored. The fallback is the weapon's
+-- own speed from its tooltip, read while not in combat.
+local function clean(v)
+    if type(v) ~= "number" then return nil end
+    if issecretvalue and issecretvalue(v) then return nil end
+    if v <= 0 then return nil end
+    return v
+end
+
+local weaponSpeed   -- from the main hand tooltip
+
+local function readWeaponSpeed()
+    if InCombatLockdown() then return end
+    pcall(function()
+        local data = C_TooltipInfo and C_TooltipInfo.GetInventoryItem and C_TooltipInfo.GetInventoryItem("player", 16)
+        if not data or not data.lines then return end
+        for _, line in ipairs(data.lines) do
+            for _, text in ipairs({ line.leftText, line.rightText }) do
+                if type(text) == "string" and not (issecretvalue and issecretvalue(text)) then
+                    local n = text:match("(%d+[%.,]%d+)")
+                    if n and text:lower():find("speed") then
+                        local v = clean(tonumber((n:gsub(",", "."))))
+                        if v then weaponSpeed = v return end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function currentSpeed()
+    local ok, v = pcall(UnitAttackSpeed, "player")
+    return (ok and clean(v)) or weaponSpeed or swing.speed or 2
+end
+
+local function swingBegin(estimated)
+    swing.start = GetTime()
+    swing.speed = currentSpeed()
+    swing.estimated = estimated
+end
+
+local function swingOverlay(btn)
+    local o = btn.molSwing
+    if o then return o end
+    o = CreateFrame("Frame", nil, btn)
+    o:SetAllPoints()
+    o:SetFrameLevel(btn:GetFrameLevel() + 9)
+    o:EnableMouse(false)
+    o.bar = o:CreateTexture(nil, "OVERLAY", nil, 6)
+    o.bar:SetColorTexture(ACCENT[1], ACCENT[2], ACCENT[3], 0.95)
+    o.bar:SetHeight(3)
+    o.bar:SetPoint("BOTTOMLEFT", o, "BOTTOMLEFT", 1, 1)
+    o.text = o:CreateFontString(nil, "OVERLAY", nil, 7)
+    o.text:SetPoint("CENTER", o, "CENTER", 0, 0)
+    o.text:SetShadowColor(0, 0, 0, 1)
+    o.text:SetShadowOffset(1, -1)
+    o:Hide()
+    btn.molSwing = o
+    return o
+end
+
+local function rebuildSwingButtons()
+    swingDirty = false
+    for i = #swingButtons, 1, -1 do swingButtons[i] = nil end
+    if not IsAttackAction then return end
+    for _, def in ipairs(DEFS) do
+        if type(def.dbKey) == "number" then
+            for i = 1, def.count do
+                local btn = getBtn(def, i)
+                local slot = btn and (btn.action or (btn.GetAttribute and btn:GetAttribute("action")))
+                if btn and slot and btn:IsVisible() then
+                    local ok, isAttack = pcall(IsAttackAction, slot)
+                    if ok and isAttack then swingButtons[#swingButtons + 1] = btn end
+                end
+            end
+        end
+    end
+end
+
+local function hideSwing()
+    for _, btn in ipairs(swingButtons) do
+        if btn.molSwing then btn.molSwing:Hide() end
+    end
+end
+
+swingFrame:SetScript("OnUpdate", function(_, elapsed)
+    if not started then return end
+    if swingDirty then rebuildSwingButtons() end
+    local remaining
+    if swingEnabled() and swing.start then
+        local now = GetTime()
+        local age = now - swing.start
+        if swing.estimated then age = age % swing.speed end
+        remaining = swing.speed - age
+        if remaining <= 0 then remaining = nil end
+    end
+    if not remaining then hideSwing() return end
+    local frac = math.min(1, remaining / swing.speed)
+    for _, btn in ipairs(swingButtons) do
+        local o = swingOverlay(btn)
+        local size = btn:GetWidth()
+        if not o.fontSize or o.fontSize ~= size then
+            o.fontSize = size
+            ns:SetFont(o.text, math.max(10, math.floor(size * 0.40)), "OUTLINE")
+        end
+        o.text:SetText(string.format("%.1f", remaining))
+        o.bar:SetWidth(math.max(1, (size - 2) * frac))
+        o:Show()
+    end
+end)
+
+local function setupSwingTimer()
+    for _, e in ipairs({ "ACTIONBAR_SLOT_CHANGED", "UPDATE_BONUS_ACTIONBAR", "ACTIONBAR_PAGE_CHANGED", "PLAYER_ENTERING_WORLD" }) do
+        ns:On(e, function() swingDirty = true end)
+    end
+    ns:On("PLAYER_ENTER_COMBAT", function() if not swing.start then swingBegin(true) end end)
+    ns:On("PLAYER_LEAVE_COMBAT", function() swing.start = nil; hideSwing() end)
+    -- haste changes: next swing uses the new speed
+    ns:On("UNIT_ATTACK_SPEED", function(_, unit)
+        if unit == "player" and swing.start then swing.speed = currentSpeed() end
+    end)
+    for _, e in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" }) do
+        ns:On(e, function() C_Timer.After(0.5, readWeaponSpeed) end)
+    end
+end
+
+----------------------------------------------------------------------
 -- Module API
 ----------------------------------------------------------------------
 -- The top bar of the center stack (bar 2, or bar 1 when bar 2 is off): the
@@ -541,6 +682,7 @@ function AB:Start()
         ns:On(e, function() AB:RequestLayout() end)
     end
     ns:On("EDIT_MODE_LAYOUTS_UPDATED", function() AB:RequestLayout() end)
+    setupSwingTimer()
     ns:On("PLAYER_ENTERING_WORLD", function() AB:RequestLayout() end)
     ns:On("UPDATE_BONUS_ACTIONBAR", function() if bars.bar1 then C_Timer.After(0, function() refreshButtons(DEFS[1]) end) end end)
 end
@@ -569,6 +711,7 @@ function AB:Apply()
             shift(sb, sb:GetWidth() / 2 + 3)
         end
         hideBlizzardArt()
+        swingDirty = true
         if ns.UnitFrames and ns.UnitFrames.RefreshCastAnchor then ns.UnitFrames:RefreshCastAnchor() end
     end)
 end
