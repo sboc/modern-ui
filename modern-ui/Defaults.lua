@@ -81,6 +81,7 @@ ns.defaults = {
         iconZoom = true,
         borders = true,
         swingTimer = true,
+        autoRank = false,      -- classic: replace spells on the bars with their highest known rank
         bars = {
             [1] = merge(barBase),
             [2] = merge(barBase),

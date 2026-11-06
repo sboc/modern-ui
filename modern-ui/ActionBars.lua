@@ -179,8 +179,24 @@ local function skinHighlights(btn)
         ns.UI.AddBorder(f, 2, ACCENT[1], ACCENT[2], ACCENT[3], 1, "OVERLAY")
         f:Hide()
         btn.molChecked = f
-        pcall(hooksecurefunc, btn, "SetChecked", function(self, checked) f:SetShown(checked and true or false) end)
-        pcall(function() f:SetShown(btn:GetChecked() and true or false) end)
+        pcall(hooksecurefunc, btn, "SetChecked", function(self)
+            -- read the real state back: callers pass 0 / 1 / nil, and 0 is truthy in Lua
+            local on = self:GetChecked()
+            f:SetShown(on == true or on == 1)
+        end)
+        local function sync()
+            local on = btn:GetChecked()
+            f:SetShown(on == true or on == 1)
+        end
+        pcall(sync)
+        -- SetChecked hooks miss updates once Blizzard's secure button code takes over in combat, so also poll
+        local driver, elapsed = CreateFrame("Frame", nil, btn), 0
+        driver:SetScript("OnUpdate", function(_, dt)
+            elapsed = elapsed + dt
+            if elapsed < 0.1 then return end
+            elapsed = 0
+            sync()
+        end)
     end
     -- equipped / new-action / spellbook-hover art
     killTexture(btn.Border)
@@ -701,6 +717,62 @@ function AB:Start()
     ns:On("UPDATE_BONUS_ACTIONBAR", function() if bars.bar1 then C_Timer.After(0, function() refreshButtons(DEFS[1]) end) end end)
 end
 
+----------------------------------------------------------------------
+-- Auto max rank (classic): swap lower spell ranks on the bars for the highest known rank
+----------------------------------------------------------------------
+local function spellInfoByIdOrName(x)
+    if C_Spell and C_Spell.GetSpellInfo then
+        local i = C_Spell.GetSpellInfo(x)
+        if i then return i.name, i.spellID end
+        return
+    end
+    local name, _, _, _, _, _, id = GetSpellInfo(x)
+    return name, id
+end
+
+local function rankOf(id)
+    local sub
+    if C_Spell and C_Spell.GetSpellSubtext then sub = C_Spell.GetSpellSubtext(id)
+    elseif GetSpellSubtext then sub = GetSpellSubtext(id) end
+    return sub and tonumber(sub:match("(%d+)"))
+end
+
+local function upgradeRanks()
+    if not ns.db or not ns.db.actionbars.autoRank then return end
+    if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return end   -- no spell ranks on retail
+    if InCombatLockdown() or not GetActionInfo then return end
+    local changed = 0
+    for slot = 1, 180 do
+        local kind, id = GetActionInfo(slot)
+        if kind == "spell" and id then
+            local name = spellInfoByIdOrName(id)
+            if name then
+                -- a name lookup resolves to the highest known rank
+                local _, best = spellInfoByIdOrName(name)
+                local cur, top = rankOf(id), best and rankOf(best)
+                if best and best ~= id and cur and top and top > cur then
+                    ClearCursor()
+                    if C_Spell and C_Spell.PickupSpell then C_Spell.PickupSpell(best) else PickupSpell(best) end
+                    if GetCursorInfo() then
+                        PlaceAction(slot)
+                        changed = changed + 1
+                    end
+                    ClearCursor()
+                end
+            end
+        end
+    end
+    if changed > 0 then ns:Print(("Upgraded %d action bar spell(s) to the highest rank."):format(changed)) end
+end
+
+function AB:UpgradeRanks()
+    ns:AfterCombat("ab_autorank", function() C_Timer.After(0.5, upgradeRanks) end)
+end
+
+for _, e in ipairs({ "LEARNED_SPELL_IN_TAB", "SPELLS_CHANGED", "PLAYER_LEVEL_UP", "PLAYER_ENTERING_WORLD" }) do
+    ns:On(e, function() AB:UpgradeRanks() end)
+end
+
 function AB:Apply()
     if not ns.db then return end
     if not ns.db.actionbars.enabled then
@@ -726,6 +798,7 @@ function AB:Apply()
         end
         hideBlizzardArt()
         swingDirty = true
+        AB:UpgradeRanks()
         if ns.UnitFrames and ns.UnitFrames.RefreshCastAnchor then ns.UnitFrames:RefreshCastAnchor() end
     end)
 end

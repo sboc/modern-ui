@@ -120,6 +120,8 @@ local function actionBarGeneral()
         Check("actionbars.iconZoom", "Crop icon edges"),
         Check("actionbars.borders", "Draw button borders"),
         Check("actionbars.swingTimer", "Swing timer on the Attack button"),
+        Check("actionbars.autoRank", "Auto-replace spells with their highest known rank"),
+        Text("Classic only. When you learn a new rank, every lower rank on your bars is swapped for it (runs out of combat)."),
         Header("Layout"),
         Text("Use 'Unlock frames' on the General page (or /mui unlock) to drag bars into place."),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
