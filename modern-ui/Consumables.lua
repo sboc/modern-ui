@@ -43,6 +43,7 @@ local function cfg() return ns.db.consumables end
 -- Tooltip text (cached per item id)
 ----------------------------------------------------------------------
 local textCache = {}
+local tries = {}
 local scanTip
 
 local function lineText(t)
@@ -89,6 +90,12 @@ local function tooltipText(itemID, link)
     if #lines < 2 then return nil end
     table.remove(lines, 1)
     c = table.concat(lines, " "):lower()
+    -- a half-loaded tooltip (name + level, no "Use:" line yet) must not be cached, or the item stays "not food" all session
+    -- (after a few tries accept it: some items genuinely have no restore text)
+    if not (c:find("health", 1, true) or c:find("mana", 1, true)) then
+        tries[itemID] = (tries[itemID] or 0) + 1
+        if tries[itemID] < 5 then return nil end
+    end
     textCache[itemID] = c
     return c
 end
@@ -158,10 +165,11 @@ local function slotInfo(bag, slot)
     if ok and type(info) == "table" then return info end
 end
 
+-- nil while item data is not loaded yet
 local function itemMinLevel(link)
     local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
     local ok, _, _, _, _, minLevel = pcall(getInfo, link)
-    return (ok and type(minLevel) == "number") and minLevel or 0
+    return (ok and type(minLevel) == "number") and minLevel or nil
 end
 
 -- priority: { rank = { KEY = position } } built from the enabled categories of one list
@@ -215,6 +223,8 @@ function K:Scan()
                 if wait then pending = true end
                 if info then
                     local minLevel = itemMinLevel(link)
+                    if not minLevel then pending = true end
+                    minLevel = minLevel or 0
                     if minLevel <= playerLevel then
                         for _, kind in ipairs({ "food", "water" }) do
                             if info[kind] and cfg()[kind].enabled then
@@ -321,11 +331,16 @@ function K:Debug(verbose)
                 local info, wait = classify(id, link)
                 if wait then
                     ns:Print(link, "- tooltip not loaded yet")
-                elseif info then
+                elseif not info then
+                    local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+                    local _, _, _, _, _, classID, subClassID = getInstant(link)
+                    ns:Print(link, string.format("rejected: class %s sub %s", tostring(classID), tostring(subClassID)))
+                    if classID == 0 then ns:Print("   ", textCache[id] or tooltipText(id, link) or "?") end
+                else
                     local cats = {}
                     for key, amt in pairs(info.cats) do cats[#cats + 1] = key .. "=" .. amt end
                     ns:Print(link, string.format("hp %d, mana %d, minLevel %d, stats: %s",
-                        info.healthAmt, info.manaAmt, itemMinLevel(link), #cats > 0 and table.concat(cats, ",") or "NONE"))
+                        info.healthAmt, info.manaAmt, itemMinLevel(link) or -1, #cats > 0 and table.concat(cats, ",") or "NONE"))
                     ns:Print("   ", textCache[id] or "?")
                 end
             end
@@ -340,6 +355,10 @@ end
 function K:Init()
     ns:On("BAG_UPDATE_DELAYED", function() K:Queue(0.5) end)
     ns:On("PLAYER_LEVEL_UP", function() K:Queue(1) end)
-    ns:On("PLAYER_ENTERING_WORLD", function() K:Queue(2) end)
+    ns:On("PLAYER_ENTERING_WORLD", function()
+        K:Queue(2)
+        -- bag / item data can still be arriving right after login: one more pass later
+        C_Timer.After(8, function() if ns.db and cfg().enabled then K:Queue(0.1) end end)
+    end)
     ns:On("GET_ITEM_INFO_RECEIVED", function() if ns.db and cfg().enabled then K:Queue(1) end end)
 end

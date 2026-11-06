@@ -42,6 +42,8 @@ local frameBase = {
     showHealthText = true,
     healthFormat = "",     -- "" = the global health text format
     showPowerText = false,
+    fontSize = 0,          -- name / health text size: 0 = automatic
+    textStack = false,     -- name above the health text (two centered lines) instead of side by side
     showIcons = true,      -- raid marker, leader, role
     showLevel = false,     -- "60 Name"
     showCombo = false,     -- combo points (target frame; vanilla combo points live on the target)
@@ -167,10 +169,10 @@ ns.defaults = {
         focusCast = { enabled = true, height = 18 },   -- focus cast bar stacked on the player cast bar
         frames = {
             -- player / target are 200 wide: they sit over the left / right ends of the stack, above the focus / target of target row
-            player = merge(frameBase, { width = 200, height = 52, castHeight = 18, showCastbar = true,
+            player = merge(frameBase, { width = 200, height = 52, powerHeight = 10, castHeight = 18, showCastbar = true,
                 castAnchor = "bars", showBuffs = true, showDebuffs = true, aurasAbove = true, auraSize = 22, auraPerRow = 8,
                 auraCount = 16 }),
-            target = merge(frameBase, { width = 200, height = 52, castHeight = 3, showCastbar = true,
+            target = merge(frameBase, { width = 200, height = 52, powerHeight = 10, castHeight = 3, showCastbar = true,
                 castAnchor = "inside", aurasAbove = true, showLevel = true, showCombo = true, showBuffs = true,
                 showDebuffs = true, onlyMyDebuffs = false, auraSize = 22, auraPerRow = 8, auraCount = 16 }),
             targettarget = merge(frameBase, { width = 200, height = 32, showPower = true, showHealthText = true,
@@ -181,9 +183,12 @@ ns.defaults = {
                 healthFormat = "PERCENT", showCastbar = false, castHeight = 3, castAnchor = "inside" }),
             pet = merge(frameBase, { width = 200, height = 32, showPower = true, showHealthText = true,
                 showIcons = false }),
-            party = merge(frameBase, { width = 200, height = 34, showCastbar = true, castHeight = 3, castAnchor = "inside",
+            -- party: a row of 4 squares, 219 wide in total = the damage meter's width (4 x 51 + 3 x 5), sitting right above it
+            party = merge(frameBase, { width = 51, height = 51, spacing = 5, horizontal = true,
+                fontSize = 9, textStack = true, healthFormat = "PERCENT",
+                showCastbar = true, castHeight = 3, castAnchor = "inside",
                 showBuffs = false, showDebuffs = true,
-                auraSize = 16, auraPerRow = 4, auraCount = 4 }),
+                auraSize = 16, auraPerRow = 2, auraCount = 4 }),
             boss = merge(frameBase, { width = 200, height = 34, showCastbar = true, showLevel = true,
                 castHeight = 3, castAnchor = "inside" }),
         },
@@ -233,7 +238,7 @@ ns.defaults.positions = {
     uf_focus = pos("BOTTOM", -350, 263),
     uf_targettarget = pos("BOTTOM", 210, 202),
     uf_pet = pos("BOTTOM", -210, 202),
-    uf_party = pos("LEFT", 30, 60),
+    uf_party = pos("BOTTOM", -499, 262),   -- 4 px above the damage meter (bottom 40 + height 218)
     uf_boss = pos("RIGHT", -30, 150),
 
     -- the cooldown manager sits between player and target (same row)

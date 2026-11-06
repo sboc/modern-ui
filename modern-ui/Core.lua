@@ -385,7 +385,7 @@ function ns:SelectProfile(name, skipApply)
     if not skipApply then self:ApplyAll() end
 end
 
-ns.DB_VERSION = 41
+ns.DB_VERSION = 44
 
 -- Settings that changed meaning between releases.
 function ns:Migrate()
@@ -424,6 +424,34 @@ function ns:Migrate()
         -- all fonts got bigger: bump profiles still on the old default sizes
         if type(db.general) == "table" and db.general.fontSize == 12 then db.general.fontSize = ns.defaults.general.fontSize end
         if type(db.chat) == "table" and db.chat.fontSize == 14 then db.chat.fontSize = ns.defaults.chat.fontSize end
+    end
+    if v < 42 then
+        -- player / target power bars are twice as tall: bump profiles still on the old default
+        local fr = db.unitframes and db.unitframes.frames
+        for _, u in ipairs({ "player", "target" }) do
+            if fr and type(fr[u]) == "table" and fr[u].powerHeight == 5 then fr[u].powerHeight = 10 end
+        end
+    end
+    if v < 43 then
+        -- party frames: square row above the damage meter. Only profiles still on the old default size / spot move.
+        local p = db.unitframes and db.unitframes.frames and db.unitframes.frames.party
+        if type(p) == "table" and p.width == 200 and p.height == 34 and not p.horizontal then
+            local d = ns.defaults.unitframes.frames.party
+            for _, k in ipairs({ "width", "height", "spacing", "horizontal", "auraPerRow" }) do p[k] = d[k] end
+            local pos = db.positions and db.positions.uf_party
+            if type(pos) ~= "table" or (pos.point == "LEFT" and pos.x == 30 and pos.y == 60) then
+                db.positions = db.positions or {}
+                db.positions.uf_party = ns.CopyTable(ns.defaults.positions.uf_party)
+            end
+        end
+    end
+    if v < 44 then
+        -- party squares: smaller two line text (only for profiles on the new square default)
+        local p = db.unitframes and db.unitframes.frames and db.unitframes.frames.party
+        if type(p) == "table" and p.width == 51 and p.height == 51 then
+            p.fontSize, p.textStack = 9, true
+            if p.healthFormat == nil or p.healthFormat == "" then p.healthFormat = "PERCENT" end
+        end
     end
     db.dbVersion = ns.DB_VERSION
 end
@@ -538,6 +566,8 @@ SlashCmdList["MODERNUI"] = function(msg)
         if ns.UnitFrames and ns.UnitFrames.AuraDebug then ns.UnitFrames:AuraDebug() end
     elseif cmd == "auratest" and ns.Auras then
         ns.Auras.Test(rest)
+    elseif cmd == "test" and ns.UnitFrames then
+        ns.UnitFrames:Test(rest or "party")
     elseif cmd == "plates" and ns.Nameplates then
         ns.Nameplates:Debug()
     elseif cmd == "focus" then
@@ -560,6 +590,6 @@ SlashCmdList["MODERNUI"] = function(msg)
     elseif cmd == "chat" and ns.Chat and ns.Chat.Debug then
         ns.Chat:Debug()
     else
-        ns:Print("Commands: /mui (config), /mui wizard, /mui unlock, /mui lock, /mui reset, /mui chat (chat diagnostics)")
+        ns:Print("Commands: /mui (config), /mui wizard, /mui unlock, /mui lock, /mui reset, /mui test party, /mui chat (chat diagnostics)")
     end
 end

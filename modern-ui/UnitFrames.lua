@@ -495,6 +495,16 @@ end
 
 local layoutHealth   -- defined below
 
+local function bindUnitEvents(f, unit)
+    f:UnregisterAllEvents()
+    for event in pairs(UNIT_EVENT_HANDLERS) do
+        local u = unit
+        if event == "UNIT_TARGET" then u = (unit == "targettarget") and "target" or nil end
+        if event == "UNIT_PET" then u = (unit == "pet") and "player" or nil end
+        if u then pcall(f.RegisterUnitEvent, f, event, u) end
+    end
+end
+
 local function createUnitFrame(unit, name, cfgKey)
     local f = CreateFrame("Button", "ModernUI_" .. name, UIParent, "SecureUnitButtonTemplate")
     f.unit, f.cfgKey = unit, cfgKey
@@ -593,12 +603,7 @@ local function createUnitFrame(unit, name, cfgKey)
         local h = UNIT_EVENT_HANDLERS[event]
         if h then h(self) end
     end)
-    for event in pairs(UNIT_EVENT_HANDLERS) do
-        local u = unit
-        if event == "UNIT_TARGET" then u = (unit == "targettarget") and "target" or nil end
-        if event == "UNIT_PET" then u = (unit == "pet") and "player" or nil end
-        if u then pcall(f.RegisterUnitEvent, f, event, u) end
-    end
+    bindUnitEvents(f, unit)
 
     frames[#frames + 1] = f
     f:Hide()
@@ -824,19 +829,34 @@ local function configureFrame(f, scale)
     f.absorb:SetAllPoints(f.health)
 
     local fs = math.max(8, math.min(ns.db.general.fontSize, math.floor(h * 0.45)))
+    if (cfg.fontSize or 0) > 0 then fs = cfg.fontSize end   -- own text size for this frame
     ns:SetFont(f.name, fs)
     ns:SetFont(f.hpText, fs)
-    ns:SetFont(f.powerText, math.max(8, fs - 2))
+    ns:SetFont(f.powerText, math.max(6, fs - 2))
 
     f.hpText:ClearAllPoints()
-    if cfg.showName then
-        f.hpText:SetPoint("RIGHT", f.health, "RIGHT", -4, 0)
-    else
-        f.hpText:SetPoint("CENTER", f.health, "CENTER", 0, 0)   -- no name: the health info is centered
-    end
     f.name:ClearAllPoints()
-    f.name:SetPoint("LEFT", f.health, "LEFT", 4, 0)
-    f.name:SetWidth(cfg.showHealthText and (w * 0.55) or (w - 10))
+    if cfg.textStack and cfg.showName and cfg.showHealthText then
+        -- two centered lines: name over health info
+        local off = math.ceil(fs * 0.6)
+        f.name:SetJustifyH("CENTER")
+        f.hpText:SetJustifyH("CENTER")
+        f.name:SetPoint("CENTER", f.health, "CENTER", 0, off)
+        f.hpText:SetPoint("CENTER", f.health, "CENTER", 0, -off)
+        f.name:SetWidth(w - 4)
+        f.hpText:SetWidth(w - 4)
+    else
+        f.name:SetJustifyH("LEFT")
+        f.hpText:SetJustifyH("RIGHT")
+        f.hpText:SetWidth(0)
+        if cfg.showName then
+            f.hpText:SetPoint("RIGHT", f.health, "RIGHT", -4, 0)
+        else
+            f.hpText:SetPoint("CENTER", f.health, "CENTER", 0, 0)   -- no name: the health info is centered
+        end
+        f.name:SetPoint("LEFT", f.health, "LEFT", 4, 0)
+        f.name:SetWidth(cfg.showHealthText and (w * 0.55) or (w - 10))
+    end
     f.name:SetShown(cfg.showName)
     f.powerText:ClearAllPoints()
     if pH >= 10 then
@@ -924,6 +944,39 @@ local function setWatch(f, enabled)
         if f.watching then UnregisterUnitWatch(f); f.watching = false end
         f:Hide()
     end
+end
+
+----------------------------------------------------------------------
+-- Test mode: party / boss frames normally need a group / an encounter. While testing, every frame of the
+-- group shows the player instead, so size, spacing, position and the text can be checked alone.
+----------------------------------------------------------------------
+local testing = {}
+
+function UF:IsTesting(key) return testing[key] and true or false end
+
+function UF:Test(key, on)
+    local c = byKey[key]
+    if not (started and c and c.def) then
+        ns:Print("Test works for the party and boss frames (/mui test party).")
+        return
+    end
+    if on == nil then on = not testing[key] end
+    testing[key] = on or nil
+    ns:AfterCombat("uf_test_" .. key, function()
+        local cfg = ns.db.unitframes.frames[key]
+        for i, f in ipairs(c.frames) do
+            local unit = on and "player" or c.def.units[i]
+            f.unit = unit
+            f:SetAttribute("unit", unit)
+            bindUnitEvents(f, unit)
+        end
+        layoutGroup(c)
+        for _, f in ipairs(c.frames) do
+            if not cfg.enabled then setWatch(f, cfg.enabled or on) end
+            if f:IsShown() then updateAll(f) end
+        end
+        ns:Print(string.format("%s frames test %s.", key, on and "on (every frame shows you)" or "off"))
+    end)
 end
 
 ----------------------------------------------------------------------

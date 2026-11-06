@@ -12,11 +12,6 @@ local MAX_FRAMES = 13
 local FRAME_ART = { "NineSlice", "Bg", "TopTileStreaks", "Background1", "Background2", "Background3",
                     "BackgroundTop", "BackgroundMiddle1", "BackgroundMiddle2", "BackgroundBottom" }
 
--- textures on an item slot that carry information: never hidden
-local KEEP_OVERLAYS = { "JunkIcon", "UpgradeIcon", "IconQuestTexture", "NewItemTexture", "IconOverlay", "IconOverlay2",
-                        "ItemContextOverlay", "searchOverlay", "SearchOverlay", "ProfessionQualityOverlay",
-                        "flash", "Flash", "BagIndicator" }
-
 local started = false
 local skinnedFrames = {}
 
@@ -44,27 +39,6 @@ end
 ----------------------------------------------------------------------
 -- Item slots
 ----------------------------------------------------------------------
--- hides a Blizzard texture for good: also fights SetAlpha / Show / SetShown / SetAtlas calls
--- (the empty slot background gets its alpha set to 0.5 by Blizzard on every update)
-local function hardKill(tex)
-    if type(tex) ~= "table" or not tex.SetAlpha then return end
-    tex:SetAlpha(0)
-    if tex.molHard then return end
-    tex.molHard = true
-    for _, m in ipairs({ "SetAlpha", "Show", "SetShown", "SetAtlas", "SetTexture" }) do
-        if type(tex[m]) == "function" then
-            pcall(hooksecurefunc, tex, m, function(self)
-                if self.molFixing then return end
-                if self:GetAlpha() ~= 0 then
-                    self.molFixing = true
-                    self:SetAlpha(0)
-                    self.molFixing = false
-                end
-            end)
-        end
-    end
-end
-
 local function setSlotBorder(btn, r, g, b)
     if btn.molBorder then btn.molBorder:SetColor(r, g, b, 1) end
 end
@@ -83,34 +57,15 @@ local function syncQuality(btn)
     setSlotBorder(btn, 0, 0, 0)
 end
 
-local function slotEmpty(btn)
-    local api = C_Container and C_Container.GetContainerItemInfo
-    local bag = btn.GetBagID and btn:GetBagID()
-    local slot = btn.GetID and btn:GetID()
-    if not (api and bag and slot) then return false end
-    local ok, info = pcall(api, bag, slot)
-    return ok and info == nil
-end
-
--- everything Blizzard draws on a slot (empty slot background, bevel, frame art) goes;
--- only the item icon and the functional overlays (junk coin, upgrade arrow, quest, new item...) stay
+-- Blizzard's own slot textures (empty slot background, ...) stay; only the icon's round mask goes,
+-- so the icon is a plain square. The bevel / normal / border textures are hidden in skinSlot.
 function BW.sweepSlot(btn)
     pcall(function()
         local icon = btn.molIcon
-        local name = btn:GetName() or ""
-        local keep = { [icon or false] = true, [btn.molBG] = true, [btn.molHL] = true }
-        for _, key in ipairs(KEEP_OVERLAYS) do
-            local t = btn[key] or _G[name .. key]
-            if type(t) == "table" then keep[t] = true end
-        end
+        if type(icon) ~= "table" or not icon.RemoveMaskTexture then return end
         for _, region in ipairs({ btn:GetRegions() }) do
-            if type(region) == "table" and region.GetObjectType then
-                local kind = region:GetObjectType()
-                if kind == "MaskTexture" then
-                    if type(icon) == "table" and icon.RemoveMaskTexture then pcall(icon.RemoveMaskTexture, icon, region) end
-                elseif kind == "Texture" and not keep[region] and type(icon) == "table" then
-                    hardKill(region)
-                end
+            if type(region) == "table" and region.GetObjectType and region:GetObjectType() == "MaskTexture" then
+                pcall(icon.RemoveMaskTexture, icon, region)
             end
         end
     end)
@@ -177,8 +132,6 @@ local function styleSlot(btn)
     local c = cfg()
     btn.molBG:SetShown(c.borders)
     btn.molBorderFrame:SetShown(c.borders)
-    local icon = btn.molIcon
-    if type(icon) == "table" then icon:SetAlpha(slotEmpty(btn) and 0 or 1) end
     syncQuality(btn)
 end
 

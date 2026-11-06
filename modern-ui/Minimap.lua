@@ -177,6 +177,9 @@ layoutFlyout = function()
             -(pad + math.floor((i - 1) / cols) * (size + gap)))
         b:SetSize(size, size)
         b:SetFrameStrata("HIGH")
+        -- addon buttons keep their own low frame level (LibDBIcon uses 8): below the flyout they sit under its dark background
+        b:SetFrameLevel(flyout:GetFrameLevel() + 2)
+        if b.molBorderFrame then b.molBorderFrame:SetFrameLevel(b:GetFrameLevel() + 5) end
         local icon = b.icon or b.Icon
         if icon and icon.ClearAllPoints then
             icon:ClearAllPoints()
@@ -202,12 +205,18 @@ local function openFlyout()
     scanButtons()
     layoutFlyout()
     flyout:ClearAllPoints()
-    local _, cy = holder:GetCenter()
-    local below = cy and cy > UIParent:GetHeight() / 2
-    if below then
-        flyout:SetPoint("TOPRIGHT", holder, "BOTTOMRIGHT", 0, -4)
+    -- beside the minimap: to the right when it fits (default position), else to the left;
+    -- aligned with the minimap's bottom edge in the lower half of the screen, its top edge in the upper half
+    local cx, cy = holder:GetCenter()
+    local right = holder:GetRight() or 0
+    local fits = right + 4 + flyout:GetWidth() <= UIParent:GetRight()
+    local upper = cy and cy > UIParent:GetHeight() / 2
+    if fits then
+        if upper then flyout:SetPoint("TOPLEFT", holder, "TOPRIGHT", 4, 0)
+        else flyout:SetPoint("BOTTOMLEFT", holder, "BOTTOMRIGHT", 4, 0) end
     else
-        flyout:SetPoint("BOTTOMRIGHT", holder, "TOPRIGHT", 0, 4)
+        if upper then flyout:SetPoint("TOPRIGHT", holder, "TOPLEFT", -4, 0)
+        else flyout:SetPoint("BOTTOMRIGHT", holder, "BOTTOMLEFT", -4, 0) end
     end
     flyout:Show()
 end

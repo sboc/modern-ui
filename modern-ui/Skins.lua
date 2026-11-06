@@ -261,7 +261,13 @@ end
 ----------------------------------------------------------------------
 local function flatTab(tab, key, insetX, insetY)
     if type(tab) ~= "table" or not tab.CreateTexture then return end
-    killRegions(tab, key)
+    -- icon tabs (character sheet sidebar: stats / titles / equipment manager) must keep their icon
+    local keep = {}
+    local tabName = tab.GetName and tab:GetName() or ""
+    for _, icon in ipairs({ tab.Icon or false, tab.icon or false, _G[tabName .. "Icon"] or false }) do
+        if icon then keep[icon] = true end
+    end
+    killRegions(tab, key, keep)
     killKeys(tab, { "Left", "Middle", "Right", "LeftDisabled", "MiddleDisabled", "RightDisabled", "LeftActive",
                     "MiddleActive", "RightActive", "Bg", "Background", "NormalTexture", "PushedTexture",
                     "HighlightTexture", "DisabledTexture" }, key)

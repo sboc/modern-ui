@@ -502,6 +502,8 @@ local function frameOptions(key, label, opts)
         Check(b .. ".showPower", "Show power bar"),
         Range(b .. ".powerHeight", "Power bar height", 2, 20, 1, px),
         Check(b .. ".showPowerText", "Show power text"),
+        Range(b .. ".fontSize", "Text size (0 = automatic)", 0, 24, 1, px),
+        Check(b .. ".textStack", "Name above health text (two lines, centered)"),
         Check(b .. ".showIcons", "Show raid marker / leader / role icons (player: combat / rest)"),
         Check(b .. ".showLevel", "Show level in the name"),
         Check(b .. ".showCastbar", "Show cast bar"),
@@ -524,13 +526,16 @@ local function frameOptions(key, label, opts)
         Range(b .. ".auraCount", "Maximum icons", 1, 24, 1),
     }
     if key == "target" then
-        table.insert(o, 14, Check(b .. ".showCombo", "Show combo points"))
+        table.insert(o, 16, Check(b .. ".showCombo", "Show combo points"))
     end
     if opts.group then
         o[#o + 1] = Header("Stacking")
         o[#o + 1] = Range(b .. ".spacing", "Spacing between frames", 0, 40, 1, px)
         o[#o + 1] = Check(b .. ".horizontal", "Lay out in a row (instead of a column)")
         o[#o + 1] = Check(b .. ".growUp", "Stack upwards (column only)")
+        o[#o + 1] = Header("Test")
+        o[#o + 1] = Button("Toggle test mode (every frame shows you)", function() ns.UnitFrames:Test(key) end)
+        o[#o + 1] = Text("Or /mui test " .. key .. ". Shows the frames without a group so size, spacing and position can be checked.")
     end
     return o
 end
