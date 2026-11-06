@@ -114,7 +114,16 @@ local function setupCollected(f)
     pcall(f.RegisterForDrag, f)            -- no dragging around the minimap rim
     f.molBG = f:CreateTexture(nil, "BACKGROUND", nil, -8)
     f.molBG:SetAllPoints()
-    f.molBG:SetColorTexture(0.04, 0.04, 0.05, 0.85)
+    f.molBG:SetColorTexture(0.16, 0.16, 0.2, 1)
+    -- the round ring highlight is gone with the rest of the ring art: a flat hover glow shows the button is live
+    if f.SetHighlightTexture then
+        pcall(f.SetHighlightTexture, f, "Interface\\Buttons\\WHITE8X8", "ADD")
+        local hl = f.GetHighlightTexture and f:GetHighlightTexture()
+        if hl then
+            hl:SetAllPoints()
+            hl:SetVertexColor(1, 1, 1, 0.25)
+        end
+    end
     f.molBorderFrame = CreateFrame("Frame", nil, f)
     f.molBorderFrame:SetAllPoints()
     f.molBorderFrame:SetFrameLevel(f:GetFrameLevel() + 5)
@@ -176,6 +185,10 @@ layoutFlyout = function()
         b:SetPoint("TOPLEFT", flyout, "TOPLEFT", pad + ((i - 1) % cols) * (size + gap),
             -(pad + math.floor((i - 1) / cols) * (size + gap)))
         b:SetSize(size, size)
+        -- LibDBIcon pins its buttons to MEDIUM / level 8 with fixed strata / level, which ignores the calls
+        -- below: the flyout (HIGH) then sits on top of the buttons and eats every click
+        if b.SetFixedFrameStrata then b:SetFixedFrameStrata(false) end
+        if b.SetFixedFrameLevel then b:SetFixedFrameLevel(false) end
         b:SetFrameStrata("HIGH")
         -- addon buttons keep their own low frame level (LibDBIcon uses 8): below the flyout they sit under its dark background
         b:SetFrameLevel(flyout:GetFrameLevel() + 2)
@@ -185,6 +198,11 @@ layoutFlyout = function()
             icon:ClearAllPoints()
             icon:SetPoint("TOPLEFT", 3, -3)
             icon:SetPoint("BOTTOMRIGHT", -3, 3)
+            -- addon icons are drawn for a grey ring: make sure nothing dims or greys them here
+            icon:SetAlpha(1)
+            if icon.SetVertexColor then icon:SetVertexColor(1, 1, 1, 1) end
+            if icon.SetDesaturated then icon:SetDesaturated(false) end
+            if icon.SetDrawLayer then icon:SetDrawLayer("ARTWORK", 7) end
         end
         b.molPlacing = false
     end
@@ -234,7 +252,7 @@ local function createFlyout()
     toggle.dot:Hide()
     toggle:Hide()
 
-    flyout = UI.Box(holder, { 0.05, 0.05, 0.07, 0.95 })
+    flyout = UI.Box(holder, { 0.1, 0.1, 0.13, 0.97 })
     flyout:SetFrameStrata("HIGH")
     flyout:SetClampedToScreen(true)
     flyout:EnableMouse(true)
@@ -405,6 +423,34 @@ local function create()
     for _, e in ipairs({ "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD" }) do
         ns:On(e, updateZone)
     end
+end
+
+-- /mui flyout: opens the flyout, then 5 seconds later lists every collected button's state and what is under the mouse
+function MM:DebugFlyout()
+    if not flyout then ns:Print("flyout not created") return end
+    openFlyout()
+    ns:Print("Flyout open: hover a button in it now (5 seconds)...")
+    C_Timer.After(5, function()
+        ns:Print(string.format("flyout: shown=%s strata=%s level=%d mouse=%s alpha=%.2f eff=%.2f",
+            tostring(flyout:IsShown()), flyout:GetFrameStrata(), flyout:GetFrameLevel(), tostring(flyout:IsMouseEnabled()),
+            flyout:GetAlpha(), flyout:GetEffectiveAlpha()))
+        for _, b in ipairs(collected) do
+            local par = b:GetParent()
+            ns:Print(string.format("%s: shown=%s parent=%s strata=%s level=%d mouse=%s alpha=%.2f eff=%.2f size=%dx%d prot=%s",
+                b:GetName() or "?", tostring(b:IsShown()), par and par:GetName() or tostring(par), b:GetFrameStrata(),
+                b:GetFrameLevel(), tostring(b:IsMouseEnabled()), b:GetAlpha(), b:GetEffectiveAlpha(),
+                b:GetWidth(), b:GetHeight(), tostring(b:IsProtected())))
+        end
+        local f
+        if GetMouseFoci then f = GetMouseFoci()[1] elseif GetMouseFocus then f = GetMouseFocus() end
+        local chain, depth = {}, 0
+        while f and depth < 8 do
+            chain[#chain + 1] = (f.GetName and f:GetName()) or tostring(f:GetObjectType())
+            f = f.GetParent and f:GetParent() or nil
+            depth = depth + 1
+        end
+        ns:Print("under mouse: " .. (#chain > 0 and table.concat(chain, " < ") or "nothing"))
+    end)
 end
 
 function MM:Init()

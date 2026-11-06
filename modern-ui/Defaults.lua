@@ -157,7 +157,7 @@ ns.defaults = {
         water = { enabled = true, priority = ns.CopyTable(ns.Consumables.DEFAULT_PRIORITY.water), disabled = {} },
     },
     skins = { enabled = true, character = true, spellbook = true, worldmap = true, gamemenu = true, npc = true, loot = true,
-              social = true, bank = true, groupfinder = true, collections = true, services = true, breath = true, bubbles = true,
+              social = true, bank = true, groupfinder = true, collections = true, services = true, taxi = true, breath = true, bubbles = true,
               bgAlpha = 0.92, qualityColors = true },
     unitframes = {
         enabled = true,

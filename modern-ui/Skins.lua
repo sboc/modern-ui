@@ -602,7 +602,43 @@ local function lootRoll(frame, key)
     flatButton(frame.IconFrame, key)
 end
 
-local SCROLL_PANELS = { "QuestDetailScrollFrame", "QuestProgressScrollFrame", "QuestRewardScrollFrame",
+-- Flight map: the continent map is drawn by textures of the frame itself, so the blanket strip
+-- the other NPC windows get would erase it. Only textures that look like frame chrome go.
+local TAXI_CHROME = { "[Pp]ortrait", "[Bb]order", "[Cc]orner", "UI%-Frame", "UI%-DialogBox", "UI%-Panel",
+                      "TopLeft", "TopRight", "BotLeft", "BotRight", "BottomLeft", "BottomRight", "TitleBg" }
+local TAXI_ATLAS = { "[Ff]rame", "[Bb]order", "[Pp]ortrait", "[Hh]eader" }
+
+local function isTaxiChrome(region)
+    local ok, tex = pcall(region.GetTexture, region)
+    if ok and type(tex) == "string" then
+        if tex:find("[Mm]ap") then return false end
+        for _, p in ipairs(TAXI_CHROME) do
+            if tex:find(p) then return true end
+        end
+    end
+    local okA, atlas = pcall(region.GetAtlas, region)
+    if okA and type(atlas) == "string" then
+        for _, p in ipairs(TAXI_ATLAS) do
+            if atlas:find(p) then return true end
+        end
+    end
+    return false
+end
+
+local function styleTaxi(frame)
+    local key = "taxi"
+    backdrop(frame, key, margins(frame))
+    killKeys(frame, FRAME_ART, key)
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if type(region) == "table" and region.GetObjectType and region:GetObjectType() == "Texture"
+           and not region.molOwn and isTaxiChrome(region) then
+            kill(region, key)
+        end
+    end
+    lightenAll(frame, key)
+end
+
+local SCROLL_PANELS ={ "QuestDetailScrollFrame", "QuestProgressScrollFrame", "QuestRewardScrollFrame",
                         "QuestGreetingScrollFrame", "GossipGreetingScrollFrame" }
 
 local generic = {
@@ -616,7 +652,7 @@ local generic = {
                       { "StaticPopup4Button%d", 4 } } },
     { key = "npc", label = "Quest, gossip and merchant windows",
       frames = { "QuestFrame", "GossipFrame", "MerchantFrame", "ItemTextFrame", "QuestLogPopupDetailFrame",
-                 "ClassTrainerFrame", "TaxiFrame", "TabardFrame", "PetStableFrame" },
+                 "ClassTrainerFrame", "TabardFrame", "PetStableFrame" },
       art = { "QuestFrameDetailPanel", "QuestFrameProgressPanel", "QuestFrameRewardPanel", "QuestFrameGreetingPanel",
               "GossipFrameGreetingPanel", "MerchantFrameInset", "MerchantMoneyInset", "MerchantExtraCurrencyInset",
               "MerchantMoneyBg", "MerchantExtraCurrencyBg", "QuestDetailScrollChildFrame", "QuestDetailScrollFrame",
@@ -762,12 +798,14 @@ local targets = {
     { key = "worldmap", style = styleWorldMap, frames = { "WorldMapFrame" }, hooks = true },
     { key = "breath", style = styleMirror,
       frames = { "MirrorTimerContainer", "MirrorTimer1", "MirrorTimer2", "MirrorTimer3" } },
+    { key = "taxi", style = styleTaxi, frames = { "TaxiFrame" } },
 }
 SK.options = {   -- label per toggle, used by the settings page
     { "character", "Character frame (equipment slots, stats, tabs)" },
     { "spellbook", "Spellbook and talents" },
     { "worldmap", "World map" },
     { "breath", "Breath, fatigue and feign death bars" },
+    { "taxi", "Flight map" },
     { "bubbles", "Chat bubbles" },
 }
 for _, g in ipairs(generic) do
