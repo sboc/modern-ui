@@ -1,0 +1,32 @@
+## Interface: 16001, 120100, 120105
+## Title: Modern UI
+## Notes: Replaces the default action bars and unit frames for WoW Forever. Includes a setup wizard and full configuration.
+## Author: sboc
+## Version: 1.0.0
+## IconTexture: Interface\AddOns\modern-ui\media\icon.tga
+## SavedVariables: ModernUIDB, MolUIDB
+## OptionalDeps: LibSharedMedia-3.0
+## Category: Interface Enhancements
+
+Core.lua
+Consumables.lua
+Defaults.lua
+Widgets.lua
+Auras.lua
+Mover.lua
+ActionBars.lua
+UnitFrames.lua
+MenuBars.lua
+Bags.lua
+Skins.lua
+Vendor.lua
+Minimap.lua
+Tracker.lua
+DataBars.lua
+Chat.lua
+Tooltip.lua
+Nameplates.lua
+DamageMeter.lua
+Cooldowns.lua
+Config.lua
+Wizard.lua
