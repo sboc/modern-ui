@@ -155,7 +155,21 @@ local function skinHighlights(btn)
     flatten(btn.GetPushedTexture and btn:GetPushedTexture(), 1, 1, 1, 0.30, btn)
     -- checked (auto attack / auto shot / toggled spell) and auto-repeat flash: full-icon washes grey the icon out,
     -- so hide both and mark the checked state with an accent outline instead
-    killTexture(btn.GetCheckedTexture and btn:GetCheckedTexture())
+    local checkedTex = btn.GetCheckedTexture and btn:GetCheckedTexture()
+    killTexture(checkedTex)
+    -- pet / stance buttons: Blizzard's update code resets the checked texture's alpha, leaving a solid white
+    -- wash over the icon - pin it to 0 and re-assert it whenever the checked state changes
+    if type(checkedTex) == "table" and checkedTex.SetAlpha and not checkedTex.molPinned then
+        checkedTex.molPinned = true
+        pcall(hooksecurefunc, checkedTex, "SetAlpha", function(self, a)
+            if a ~= 0 then self:SetAlpha(0) end
+        end)
+        pcall(hooksecurefunc, checkedTex, "SetVertexColor", function(self) self:SetAlpha(0) end)
+        pcall(hooksecurefunc, btn, "SetChecked", function()
+            local t = btn:GetCheckedTexture()
+            if t then t:SetAlpha(0) end
+        end)
+    end
     killTexture(btn.Flash)
     if not btn.molChecked and btn.SetChecked then
         local f = CreateFrame("Frame", nil, btn)
