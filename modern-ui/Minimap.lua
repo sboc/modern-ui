@@ -332,6 +332,9 @@ local function adopt()
             self:SetZoom(math.max(0, math.min(max, z)))
         end)
     end
+    -- Blizzard's satellites (instance difficulty, mail, crafting orders) call self:GetParent():Layout()
+    -- when they update (zoning). Re-parented to the Minimap they would hit a nil method: give it a no-op.
+    if not mm.Layout then mm.Layout = function() end end
     local cl = _G.MinimapCluster
     if cl then
         cl:SetAlpha(0)

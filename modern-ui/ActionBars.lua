@@ -153,11 +153,20 @@ local function skinHighlights(btn)
     end)
     flatten(btn.GetHighlightTexture and btn:GetHighlightTexture(), 1, 1, 1, 0.16, btn)
     flatten(btn.GetPushedTexture and btn:GetPushedTexture(), 1, 1, 1, 0.30, btn)
-    flatten(btn.GetCheckedTexture and btn:GetCheckedTexture(), ACCENT[1], ACCENT[2], ACCENT[3], 0.30, btn)
-
-    -- auto-repeat flash: a soft red wash instead of the big red frame
-    if type(btn.Flash) == "table" and btn.Flash.SetTexture then
-        flatten(btn.Flash, 0.85, 0.12, 0.12, 0.35, btn)
+    -- checked (auto attack / auto shot / toggled spell) and auto-repeat flash: full-icon washes grey the icon out,
+    -- so hide both and mark the checked state with an accent outline instead
+    killTexture(btn.GetCheckedTexture and btn:GetCheckedTexture())
+    killTexture(btn.Flash)
+    if not btn.molChecked and btn.SetChecked then
+        local f = CreateFrame("Frame", nil, btn)
+        f:SetAllPoints()
+        f:SetFrameLevel(btn:GetFrameLevel() + 7)
+        f:EnableMouse(false)
+        ns.UI.AddBorder(f, 2, ACCENT[1], ACCENT[2], ACCENT[3], 1, "OVERLAY")
+        f:Hide()
+        btn.molChecked = f
+        pcall(hooksecurefunc, btn, "SetChecked", function(self, checked) f:SetShown(checked and true or false) end)
+        pcall(function() f:SetShown(btn:GetChecked() and true or false) end)
     end
     -- equipped / new-action / spellbook-hover art
     killTexture(btn.Border)
