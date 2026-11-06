@@ -145,7 +145,8 @@ ns.defaults = {
         bags = { enabled = true, size = 28, spacing = 3, perRow = 1, scale = 1,
                  alpha = 1, fade = true, fadeAlpha = 0, borders = true, attach = true },
     },
-    bagwindows = { enabled = true, skin = true, bgAlpha = 0.92, borders = true, qualityColors = true },
+    bagwindows = { enabled = true, skin = true, bgAlpha = 0.92, borders = true, qualityColors = true,
+                   movable = true, positions = {} },
     vendor = { autoSellJunk = true, summary = true },
     consumables = {
         enabled = true,    -- keep the Food / Water macros pointed at the best item in the bags

@@ -209,6 +209,8 @@ local function bagWindowOptions()
         Range("bagwindows.bgAlpha", "Background opacity", 0.3, 1, 0.02, pct),
         Check("bagwindows.borders", "Flat item slots with borders"),
         Check("bagwindows.qualityColors", "Color slot borders by item quality"),
+        Check("bagwindows.movable", "Move bag windows by dragging their background"),
+        Button("Reset bag window positions", function() if ns.BagWindows then ns.BagWindows:ResetPositions() end end),
         Header("Vendor"),
         Check("vendor.autoSellJunk", "Automatically sell gray (junk) items when a merchant opens"),
         Check("vendor.summary", "Print what was sold and for how much"),

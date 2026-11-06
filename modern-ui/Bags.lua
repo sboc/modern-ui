@@ -205,7 +205,65 @@ local function restyleFrame(frame)
     eachItem(frame, function(btn) pcall(styleSlot, btn) end)
 end
 
-local function skinFrame(frame)
+-- Moving: drag a bag window by its background. Blizzard re-anchors the windows whenever one opens or
+-- closes, so the saved spot is re-applied right after that. Positions: { point, x, y } off the same point of
+-- UIParent (nearest of 9 anchors), in UIParent units.
+local function frameKey(frame) return frame:GetName() or "bags" end
+
+local function applyPosition(frame)
+    local c = cfg()
+    local p = c.movable and c.positions and c.positions[frameKey(frame)]
+    if not p or not frame:IsShown() or frame.molDragging then return end
+    local s = frame:GetScale()
+    if not s or s <= 0 then s = 1 end
+    frame:ClearAllPoints()
+    frame:SetPoint(p.point, UIParent, p.point, p.x / s, p.y / s)
+end
+
+local function savePosition(frame)
+    local k = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    local l, r, b, t = frame:GetLeft(), frame:GetRight(), frame:GetBottom(), frame:GetTop()
+    if not (l and r and b and t) then return end
+    l, r, b, t = l * k, r * k, b * k, t * k
+    local W, H = UIParent:GetWidth(), UIParent:GetHeight()
+    local cx, cy = (l + r) / 2, (b + t) / 2
+    local v = (cy < H / 3) and "BOTTOM" or (cy > H * 2 / 3) and "TOP" or ""
+    local h = (cx < W / 3) and "LEFT" or (cx > W * 2 / 3) and "RIGHT" or ""
+    local point = v .. h
+    if point == "" then point = "CENTER" end
+    local function xy(L, R, B, T)
+        return point:find("LEFT") and L or point:find("RIGHT") and R or (L + R) / 2,
+               point:find("BOTTOM") and B or point:find("TOP") and T or (B + T) / 2
+    end
+    local fx, fy = xy(l, r, b, t)
+    local px, py = xy(0, W, 0, H)
+    cfg().positions[frameKey(frame)] = { point = point, x = math.floor(fx - px + 0.5), y = math.floor(fy - py + 0.5) }
+end
+
+local function makeMovable(frame)
+    if not (frame.SetMovable and frame.RegisterForDrag and frame.StartMoving) then return end
+    frame:SetMovable(true)
+    frame:SetClampedToScreen(true)
+    frame:RegisterForDrag("LeftButton")
+    pcall(frame.HookScript, frame, "OnDragStart", function(self)
+        if not (cfg().enabled and cfg().movable) then return end
+        self.molDragging = true
+        self:StartMoving()
+    end)
+    pcall(frame.HookScript, frame, "OnDragStop", function(self)
+        if not self.molDragging then return end
+        self.molDragging = nil
+        self:StopMovingOrSizing()
+        if self.SetUserPlaced then pcall(self.SetUserPlaced, self, false) end
+        savePosition(self)
+    end)
+    pcall(frame.HookScript, frame, "OnShow", function(self)
+        C_Timer.After(0, function() applyPosition(self) end)
+    end)
+end
+
+local skinFrame
+function skinFrame(frame)
     if type(frame) ~= "table" or skinnedFrames[frame] or not frame.HookScript then return end
     skinnedFrames[frame] = true
     local bg = CreateFrame("Frame", nil, frame)
@@ -217,6 +275,7 @@ local function skinFrame(frame)
     bg.bg:SetAllPoints()
     bg.borders = UI.AddBorder(bg, 1, 0, 0, 0, 1, "BORDER")
     frame.molBG = bg
+    makeMovable(frame)
     pcall(frame.HookScript, frame, "OnShow", function(self) if cfg().enabled then restyleFrame(self) end end)
     for _, m in ipairs({ "UpdateItems", "Update", "UpdateName" }) do
         if type(frame[m]) == "function" then
@@ -251,6 +310,25 @@ function BW:Start()
         ns:On(e, requestRestyle)
     end
     ns:On("PLAYER_ENTERING_WORLD", function() BW:Apply() end)
+    if type(_G.UpdateContainerFrameAnchors) == "function" then
+        hooksecurefunc("UpdateContainerFrameAnchors", function()
+            if not (ns.db and cfg().enabled and cfg().movable) then return end
+            for _, f in ipairs(allFrames()) do
+                if skinnedFrames[f] then applyPosition(f) end
+            end
+        end)
+    end
+end
+
+-- back to wherever Blizzard puts the windows
+function BW:ResetPositions()
+    if not ns.db then return end
+    cfg().positions = {}
+    if type(_G.UpdateContainerFrameAnchors) == "function" and not InCombatLockdown() then
+        pcall(_G.UpdateContainerFrameAnchors)
+    else
+        ns:Print("Bag positions reset: close and reopen your bags.")
+    end
 end
 
 function BW:Init()
