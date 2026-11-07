@@ -153,10 +153,11 @@ ns.defaults = {
                    movable = true, positions = {} },
     vendor = { autoSellJunk = true, summary = true },
     consumables = {
-        enabled = true,    -- keep the Food / Water macros pointed at the best item in the bags
+        enabled = true,    -- keep the Food / Water / Health Potion macros pointed at the best item in the bags
         announce = true,   -- print when the pick changes
         food  = { enabled = true, priority = ns.CopyTable(ns.Consumables.DEFAULT_PRIORITY.food),  disabled = {} },
         water = { enabled = true, priority = ns.CopyTable(ns.Consumables.DEFAULT_PRIORITY.water), disabled = {} },
+        healthpot = { enabled = true },
     },
     skins = { enabled = true, character = true, spellbook = true, worldmap = true, gamemenu = true, npc = true, loot = true,
               social = true, bank = true, groupfinder = true, collections = true, services = true, taxi = true, breath = true, bubbles = true,

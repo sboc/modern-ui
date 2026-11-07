@@ -243,9 +243,9 @@ local function consumableOptions()
     for _, c in ipairs(K.CATEGORIES) do labels[c.key] = c.label end
     local function apply() ns:RequestApply("consumables") end
     local o = {
-        Header("Food & Water Macros"),
+        Header("Food, Water & Potion Macros"),
         Check("consumables.enabled", "Keep the " .. K.MACROS.food .. " and " .. K.MACROS.water .. " macros up to date"),
-        Text("Creates two global macros (shared by all characters) and points them at the best food / drink in your bags. Drag them to an action bar once; they update themselves, using whichever character is logged in. Updates made in combat wait until combat ends. Items above your level are ignored."),
+        Text("Creates global macros (shared by all characters) and points them at the best food / drink / health potion in your bags. Drag them to an action bar once; they update themselves, using whichever character is logged in. Updates made in combat wait until combat ends. Items above your level are ignored."),
         Check("consumables.announce", "Print in chat when the pick changes"),
         Button("Update now", function() ns.Consumables:Update() end),
     }
@@ -264,6 +264,9 @@ local function consumableOptions()
             if ns.Config.RebuildPage then ns.Config:RebuildPage("consumables") end
         end)
     end
+    o[#o + 1] = Header("Health potion")
+    o[#o + 1] = Check("consumables.healthpot.enabled", "Manage the " .. K.MACROS.healthpot .. " macro")
+    o[#o + 1] = Text("Points the macro at the health potion that heals the most among the ones you are high enough level to use. Rejuvenation potions only win when no pure healing potion is as big.")
     return o
 end
 
@@ -564,7 +567,7 @@ local function buildPageList()
         pages[#pages + 1] = { key = def.id, title = def.label, options = function() return menuOptions(def) end }
     end
     pages[#pages + 1] = { key = "bagwindows", title = "Bag Windows", options = bagWindowOptions }
-    pages[#pages + 1] = { key = "consumables", title = "Food & Water", options = consumableOptions }
+    pages[#pages + 1] = { key = "consumables", title = "Food, Water & Potions", options = consumableOptions }
     pages[#pages + 1] = { key = "skins", title = "Window Skins", options = skinOptions }
     pages[#pages + 1] = { group = "Interface" }
     pages[#pages + 1] = { key = "minimap", title = "Minimap", options = minimapOptions }

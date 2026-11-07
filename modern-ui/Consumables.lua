@@ -1,13 +1,16 @@
 local ADDON, ns = ...
 
--- Consumables: keeps two global macros ("Food", "Water", shared by all characters) pointed at the best food / drink in your bags.
+-- Consumables: keeps three global macros ("Food", "Water", "Health Potion", shared by all characters) pointed at the best
+-- food / drink / health potion in your bags. The potion pick is simply the biggest heal you can use at your level.
 -- "Best" = the user's stat priority list first (attack power, spell power, ...), then the bigger buff, then the bigger
 -- restore, then the higher level item. Items above your level are ignored. Macros can only be edited out of
 -- combat, so updates made in combat are queued until it ends.
 local K = ns:NewModule("consumables")
 ns.Consumables = K
 
-K.MACROS = { food = "Food", water = "Water" }
+K.MACROS = { food = "Food", water = "Water", healthpot = "Health Potion" }
+local KINDS = { "food", "water", "healthpot" }
+local KIND_LABEL = { food = "Food", water = "Water", healthpot = "Health potion" }
 local OLD_MACROS = { food = "MolFood", water = "MolWater" }   -- renamed in place if still around
 
 -- key, label, tooltip fragments (lowercase, plain text match). First matching fragment wins.
@@ -120,10 +123,20 @@ local function classify(itemID, link)
     if not getInstant then return end
     local _, _, _, _, _, classID, subClassID = getInstant(link)
     local consumable = (Enum and Enum.ItemClass and Enum.ItemClass.Consumable) or 0
-    if classID ~= consumable or subClassID ~= 5 then return end   -- 5 = Food & Drink
+    local isPotion = subClassID == 1
+    if classID ~= consumable or (subClassID ~= 5 and not isPotion) then return end   -- 5 = Food & Drink, 1 = Potion
 
     local text = tooltipText(itemID, link)
     if not text then return nil, true end   -- not loaded yet
+
+    if isPotion then
+        -- "Restores 1050 to 1750 health" (range, averaged) or "Restores 700 health"
+        local lo, hi = text:match("restores (%d+) to (%d+) health")
+        local amt = lo and (tonumber(lo) + tonumber(hi)) / 2 or number(text, "restores (%d+) health") or 0
+        if amt <= 0 or text:find(" over ", 1, true) then return end   -- not an instant heal
+        return { healthpot = true, healthAmt = amt, manaAmt = number(text, "restores %d+ to (%d+) mana")
+                 or number(text, "restores (%d+) mana") or 0, cats = {} }
+    end
 
     local info = {
         healthAmt = number(text, "restores (%d+) health") or number(text, "(%d+) health over") or 0,
@@ -192,6 +205,7 @@ local function score(info, kind, rank, minLevel)
         local r = rank[key]
         if r and (r < bestRank or (r == bestRank and amt > bestAmt)) then bestRank, bestAmt = r, amt end
     end
+    if kind == "healthpot" then return { -info.healthAmt, info.manaAmt, -minLevel } end   -- biggest heal, pure heal before rejuvenation
     local restore = kind == "food" and info.healthAmt or info.manaAmt
     return { bestRank, -bestAmt, -restore, -minLevel }
 end
@@ -226,8 +240,8 @@ function K:Scan()
                     if not minLevel then pending = true end
                     minLevel = minLevel or 0
                     if minLevel <= playerLevel then
-                        for _, kind in ipairs({ "food", "water" }) do
-                            if info[kind] and cfg()[kind].enabled then
+                        for _, kind in ipairs(KINDS) do
+                            if info[kind] and cfg()[kind] and cfg()[kind].enabled then
                                 local s = score(info, kind, ranks[kind], minLevel)
                                 if better(s, bestScore[kind]) then
                                     bestScore[kind] = s
@@ -248,7 +262,7 @@ end
 ----------------------------------------------------------------------
 local function macroBody(kind, pick)
     if pick then return "#showtooltip\n/use item:" .. pick.itemID end
-    return "#showtooltip\n/run print(\"Modern UI: no " .. (kind == "food" and "food" or "water") .. " in your bags\")"
+    return "#showtooltip\n/run print(\"Modern UI: no " .. KIND_LABEL[kind]:lower() .. " in your bags\")"
 end
 
 local lastPick = {}
@@ -257,7 +271,7 @@ local function writeMacro(kind, pick)
     local name = K.MACROS[kind]
     local body = macroBody(kind, pick)
     local idx = GetMacroIndexByName and GetMacroIndexByName(name) or 0
-    if (not idx or idx == 0) and GetMacroIndexByName then
+    if (not idx or idx == 0) and GetMacroIndexByName and OLD_MACROS[kind] then
         idx = GetMacroIndexByName(OLD_MACROS[kind]) or 0   -- keeps the action bar slot
     end
     -- an older character-specific macro cannot be turned global: replace it (its action bar slot is lost once)
@@ -283,7 +297,7 @@ local function writeMacro(kind, pick)
     end
     local id = pick and pick.itemID or nil
     if cfg().announce and lastPick[kind] ~= id then
-        ns:Print(string.format("%s macro: %s", kind == "food" and "Food" or "Water", pick and pick.link or "nothing found"))
+        ns:Print(string.format("%s macro: %s", KIND_LABEL[kind], pick and pick.link or "nothing found"))
     end
     lastPick[kind] = id
 end
@@ -292,8 +306,8 @@ function K:Update()
     if not ns.db or not cfg().enabled then return end
     ns:AfterCombat("consumables", function()
         local best, pending = K:Scan()
-        for _, kind in ipairs({ "food", "water" }) do
-            if cfg()[kind].enabled then
+        for _, kind in ipairs(KINDS) do
+            if cfg()[kind] and cfg()[kind].enabled then
                 local ok, err = pcall(writeMacro, kind, best[kind])
                 if not ok then geterrorhandler()(err) end
             end
@@ -315,7 +329,7 @@ end
 -- its parsed numbers and tooltip text, to see what the parser makes of an item.
 function K:Debug(verbose)
     local best = K:Scan()
-    for _, kind in ipairs({ "food", "water" }) do
+    for _, kind in ipairs(KINDS) do
         local p = best[kind]
         ns:Print(string.format("%s: %s", kind, p and p.link or "none"))
     end

@@ -718,7 +718,11 @@ local function styleMirrorTimer(timer, key)
     local keep = {}
     if sb and sb.GetStatusBarTexture then
         keep[sb:GetStatusBarTexture()] = true
+        -- swapping the texture can reset the tint to white: put Blizzard's colour back (blue for breath)
+        local r, g, b = sb:GetStatusBarColor()
         pcall(sb.SetStatusBarTexture, sb, ns:GetTexture())
+        if not r or (r > 0.95 and g > 0.95 and b > 0.95) then r, g, b = 0.0, 0.5, 1.0 end
+        sb:SetStatusBarColor(r, g, b)
     end
     killKeys(timer, { "Border", "Background", "Bg", "BG" }, key)
     killRegions(timer, key)
@@ -727,7 +731,9 @@ local function styleMirrorTimer(timer, key)
         killKeys(sb, { "Border", "Background", "Bg", "BG" }, key)
         killRegions(sb, key, keep)
     end
-    backdrop(timer, key, 0, 0, 0, 0)
+    -- dark fill behind the bar, no border
+    local bg = backdrop(timer, key, 0, 0, 0, 0)
+    for i = 1, 4 do if bg.borders[i] then bg.borders[i]:Hide() end end
     if label and label.SetFont then
         ns:SetFont(label, math.max(9, ns.db.general.fontSize - 1), "OUTLINE")
         label:SetShown(true)
