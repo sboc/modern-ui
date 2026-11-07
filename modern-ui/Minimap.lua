@@ -80,6 +80,7 @@ local RING_TEXTURES = { [136430] = true, [136467] = true }   -- tracking ring, r
 
 local collected, collectedSet = {}, {}
 local flyout, toggle
+local launcher   -- Modern UI's own map button (created below), collected like an addon button
 local flyQueued = false
 
 local function isAddonButton(f)
@@ -151,6 +152,7 @@ local function scanButtons()
         for _, n in ipairs(BLIZZ_COLLECT) do add(_G[n]) end
     end
     if c.flyoutAddons then
+        add(launcher)
         for _, parent in ipairs({ _G.Minimap, _G.MinimapBackdrop, _G.MinimapCluster }) do
             if parent and parent.GetChildren then
                 for _, child in ipairs({ parent:GetChildren() }) do
@@ -265,6 +267,75 @@ local function createFlyout()
         if away > 0.6 then self:Hide() end
     end)
     flyout:SetScript("OnShow", function() away = 0 end)
+end
+
+----------------------------------------------------------------------
+-- Modern UI launcher: a small button on the map rim. Left-click opens the
+-- settings, right-click reloads the UI, dragging slides it round the rim.
+----------------------------------------------------------------------
+local function placeLauncher()
+    if not launcher then return end
+    local c = cfg()
+    -- collected into the flyout: the flyout lays it out
+    if c.flyout and c.flyoutAddons then return end
+    launcher.molPlacing = true
+    if launcher:GetParent() ~= holder then
+        launcher:SetParent(holder)
+        launcher:SetSize(24, 24)
+        launcher:SetFrameStrata(holder:GetFrameStrata())
+        launcher:SetFrameLevel(holder:GetFrameLevel() + 45)
+        launcher:RegisterForDrag("LeftButton")
+    end
+    local rad = math.rad(c.buttonAngle or 180)
+    local dx, dy = math.cos(rad), math.sin(rad)
+    local half = holder:GetWidth() / 2
+    if c.shape ~= "round" then
+        local m = math.max(math.abs(dx), math.abs(dy))
+        dx, dy = dx / m, dy / m
+    end
+    launcher:ClearAllPoints()
+    launcher:SetPoint("CENTER", holder, "CENTER", dx * half, dy * half)
+    launcher.molPlacing = false
+end
+
+local function createLauncher()
+    launcher = CreateFrame("Button", "ModernUILauncher", holder)
+    launcher:SetSize(24, 24)
+    launcher:SetFrameLevel(holder:GetFrameLevel() + 45)
+    -- background, border and hover glow come from setupCollected (same look as the other buttons)
+    launcher.icon = launcher:CreateTexture(nil, "ARTWORK")
+    launcher.icon:SetPoint("TOPLEFT", 3, -3)
+    launcher.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+    launcher.icon:SetTexture("Interface\\AddOns\\modern-ui\\media\\icon.tga")
+    setupCollected(launcher)
+
+    launcher:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    launcher:SetScript("OnClick", function(_, button)
+        if button == "RightButton" then ReloadUI() else ns.Config:Toggle() end
+    end)
+
+    launcher:RegisterForDrag("LeftButton")
+    launcher:SetScript("OnDragStart", function(self)
+        if cfg().flyout and cfg().flyoutAddons then return end   -- collected: no rim dragging
+        self:SetScript("OnUpdate", function()
+            local cx, cy = holder:GetCenter()
+            local scale = holder:GetEffectiveScale()
+            local mx, my = GetCursorPosition()
+            cfg().buttonAngle = math.deg(math.atan2(my / scale - cy, mx / scale - cx)) % 360
+            placeLauncher()
+        end)
+    end)
+    launcher:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
+
+    launcher:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Modern UI")
+        GameTooltip:AddLine("Left-click: settings", 1, 1, 1)
+        GameTooltip:AddLine("Right-click: reload UI", 1, 1, 1)
+        GameTooltip:AddLine("Drag: move around the map", 0.6, 0.6, 0.6)
+        GameTooltip:Show()
+    end)
+    launcher:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
 ----------------------------------------------------------------------
@@ -416,6 +487,7 @@ local function create()
     holder.clock:SetShadowOffset(1, -1)
 
     createFlyout()
+    createLauncher()
 
     local tick = CreateFrame("Frame", nil, holder)
     local acc = 1
@@ -525,6 +597,8 @@ function MM:Apply()
         ns:SetFont(holder.zone, math.max(9, ns.db.general.fontSize - 2), "")
         ns:SetFont(holder.clock, math.max(9, ns.db.general.fontSize - 2), "")
         holder.zone:SetWidth(size - 10)
+        launcher:SetShown(c.showButton)
+        placeLauncher()
         holder.zone:SetShown(c.zoneText)
         holder.clock:SetShown(c.clock)
         updateZone()

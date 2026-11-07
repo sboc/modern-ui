@@ -536,6 +536,8 @@ SlashCmdList["MODERNUI"] = function(msg)
             ns:ResetProfile()
             ns:Print("Profile reset to defaults.")
         end)
+    elseif cmd == "reload" or cmd == "rl" then
+        ReloadUI()
     elseif cmd == "unlock" or cmd == "move" then
         ns.Mover:Unlock()
     elseif cmd == "lock" then
@@ -592,6 +594,6 @@ SlashCmdList["MODERNUI"] = function(msg)
     elseif cmd == "chat" and ns.Chat and ns.Chat.Debug then
         ns.Chat:Debug()
     else
-        ns:Print("Commands: /mui (config), /mui wizard, /mui unlock, /mui lock, /mui reset, /mui test party, /mui chat (chat diagnostics)")
+        ns:Print("Commands: /mui (config), /mui wizard, /mui unlock, /mui lock, /mui reset, /mui reload, /mui test party, /mui chat (chat diagnostics)")
     end
 end

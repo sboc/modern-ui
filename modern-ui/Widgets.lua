@@ -344,6 +344,7 @@ function UI.Window(name, title, w, h, strata)
     local close = UI.Button(bar, "X", 22, 20, function() f:Hide() end)
     close:SetPoint("RIGHT", -4, 0)
     f.titleBar = bar
+    f.closeButton = close
     return f
 end
 

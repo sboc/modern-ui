@@ -52,13 +52,14 @@ local function generalOptions()
         Header("Tools"),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
         Button("Run setup wizard", function() Config:Hide(); ns.Wizard:Show() end),
+        Button("Reload UI", function() ReloadUI() end),
         Button("Reset everything to defaults", function()
             UI.Confirm("Reset ALL settings of the active profile to defaults?\nThis also re-runs the layout defaults.", function()
                 ns:ResetProfile()
                 ns:Print("Profile reset to defaults.")
             end)
         end),
-        Text("Slash commands: /mui, /mui wizard, /mui unlock, /mui lock, /mui reset"),
+        Text("Slash commands: /mui, /mui wizard, /mui unlock, /mui lock, /mui reset, /mui reload"),
     }
 end
 
@@ -292,6 +293,7 @@ local function minimapOptions()
         Range("minimap.alpha", "Opacity", 0.1, 1, 0.05, pct),
         Check("minimap.borders", "Draw border (square)"),
         Check("minimap.mouseZoom", "Zoom with the mouse wheel"),
+        Check("minimap.showButton", "Modern UI button on the map (left-click settings, right-click reload, drag to move)"),
         Header("Text"),
         Check("minimap.zoneText", "Show zone name"),
         Check("minimap.clock", "Show clock"),
@@ -606,6 +608,9 @@ function Config:Build()
     buildPageList()
     local win = UI.Window("ModernUIConfigFrame", "Modern UI  |cff888888v" .. ns.version .. "|r", 820, 620)
     self.win = win
+
+    local reload = UI.Button(win.titleBar, "Reload UI", 70, 20, function() ReloadUI() end)
+    reload:SetPoint("RIGHT", win.closeButton, "LEFT", -6, 0)
 
     local side = CreateFrame("Frame", nil, win)
     side:SetPoint("TOPLEFT", 0, -28)

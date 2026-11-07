@@ -102,6 +102,7 @@ ns.defaults = {
         showTracking = true, showCalendar = true, showMail = true, showDifficulty = true,
         showLanding = true, showQueue = true, showAddons = true,
         flyout = true, flyoutQueue = true, flyoutAddons = true, flyoutColumns = 4, flyoutSize = 28,
+        showButton = true, buttonAngle = 180,   -- Modern UI launcher on the map rim (angle in degrees, 0 = right, counter-clockwise)
     },
     tracker = {
         enabled = true, scale = 1, alpha = 1, skin = true, background = true, bgAlpha = 0.55, attach = true,
