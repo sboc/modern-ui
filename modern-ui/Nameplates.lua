@@ -38,7 +38,14 @@ local function isEnemy(unit)
     return res and true or false
 end
 
-local PET_COLOR = { 0.35, 0.85, 0.95 }   -- name color of friendly pets / minions
+local PET_COLOR = { 0.85, 0.75, 0.5 }   -- name color of friendly pets / minions (tan, not close to any class color)
+local PET_SCALE = 0.7                    -- pet plates: font and bar width as a fraction of a normal friendly plate
+
+local function isPet(unit)
+    local res = false
+    pcall(function() res = not UnitIsPlayer(unit) and UnitPlayerControlled and UnitPlayerControlled(unit) and true or false end)
+    return res
+end
 
 local function unitColor(unit, friendly)
     local r, g, b
@@ -147,7 +154,8 @@ local function layout(f)
     local c = cfg()
     local w, h = c.width, c.height
     local friendly = f.friendly
-    if friendly then f:SetSize(math.floor(w * FRIENDLY_BAR_WIDTH), FRIENDLY_BAR_HEIGHT) else f:SetSize(w, h) end
+    local pet = friendly and f.pet
+    if friendly then f:SetSize(math.floor(w * FRIENDLY_BAR_WIDTH * (pet and PET_SCALE or 1)), FRIENDLY_BAR_HEIGHT) else f:SetSize(w, h) end
     f.health:ClearAllPoints()
     if friendly then
         f.health:SetAllPoints(f)
@@ -167,7 +175,7 @@ local function layout(f)
     f.bg:SetShown(not friendly)
     f.health:SetShown(true)
     f.health:SetAlpha(friendly and FRIENDLY_ALPHA or 1)
-    ns:SetFont(f.name, friendly and math.max(10, fs) or fs, "OUTLINE")
+    ns:SetFont(f.name, pet and math.max(8, math.floor(fs * PET_SCALE + 0.5)) or friendly and math.max(10, fs) or fs, "OUTLINE")
     ns:SetFont(f.hpText, math.max(8, math.min(fs, h - 1)), "OUTLINE")
     ns:SetFont(f.cast.text, math.max(7, fs - 1), "OUTLINE")
     f.name:ClearAllPoints()
@@ -527,6 +535,7 @@ local function onAdded(unit)
     end
     f.unit = unit
     f.friendly = not enemy
+    f.pet = not enemy and isPet(unit)
     active[unit] = f
     bindEvents(f, unit)
     hideBlizzard(plate)
