@@ -374,6 +374,7 @@ local function nameplateOptions()
         Range("nameplates.offsetY", "Vertical offset", -40, 40, 1, px),
         Header("Elements"),
         Check("nameplates.showHealthText", "Health percentage"),
+        Check("nameplates.showLevel", "Enemy level, coloured by difficulty"),
         Check("nameplates.showCast", "Cast bar"),
         Range("nameplates.castHeight", "Cast bar height", 4, 24, 1, px),
         Check("nameplates.showDebuffs", "Debuffs on the unit"),

@@ -123,7 +123,7 @@ ns.defaults = {
     tooltip = { enabled = true, skin = true, bgAlpha = 0.92, anchor = true, gap = 6, classBar = true, className = true, fontSize = 0 },
     nameplates = {
         enabled = true, skinFriendly = true, width = 190, height = 18, castHeight = 13, offsetY = 0,
-        showHealthText = true, showCast = true, showDebuffs = true, onlyMyDebuffs = false, showBuffs = true, debuffSize = 22,
+        showHealthText = true, showLevel = true, showCast = true, showDebuffs = true, onlyMyDebuffs = false, showBuffs = true, debuffSize = 22,
         debuffTimer = true,   -- time remaining on the debuff icons
         highlightTarget = true, threatOutline = true, targetScale = 1.1, dimOthers = true, dimAlpha = 0.75,
     },

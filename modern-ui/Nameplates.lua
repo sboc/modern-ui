@@ -119,6 +119,13 @@ local function createFrame(plate)
     f.name:SetWordWrap(false)
     f.hpText = f.border:CreateFontString(nil, "OVERLAY")
     f.hpText:SetJustifyH("RIGHT")
+    -- inset highlight (target / threat): drawn on the bar's own edge, inside the permanent dark border
+    f.hl = CreateFrame("Frame", nil, f.border)
+    f.hl:SetAllPoints(f.health)
+    f.hl:SetFrameLevel(f.border:GetFrameLevel() + 1)
+    f.hl:EnableMouse(false)
+    f.hlBorders = UI.AddBorder(f.hl, 1, 1, 1, 1, 1, "OVERLAY")
+    f.hl:Hide()
     f.raid = f.border:CreateTexture(nil, "OVERLAY")
     f.raid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
     f.raid:Hide()
@@ -277,8 +284,51 @@ end
 local function updateName(f)
     local unit = f.unit
     if not unit then return end
-    pcall(function() f.name:SetText(UnitName(unit)) end)
+    -- enemy plates: "[60] Name", the level in its difficulty colour (prefix built by updateLevel)
+    local prefix = f.levelPrefix
+    if not (prefix and pcall(function() f.name:SetText(prefix .. UnitName(unit)) end)) then
+        pcall(function() f.name:SetText(UnitName(unit)) end)
+    end
     if f.friendly then f.name:SetTextColor(unitColor(unit, true)) else f.name:SetTextColor(1, 1, 1) end
+end
+
+-- level in front of the name as "[60] ", brackets and number in the difficulty colour (grey / green / yellow / orange / red)
+local function updateLevel(f)
+    local unit = f.unit
+    f.levelPrefix = nil
+    if unit and not f.friendly and cfg().showLevel then
+        local level
+        pcall(function() level = (UnitEffectiveLevel and UnitEffectiveLevel(unit)) or UnitLevel(unit) end)
+        if type(level) == "number" and not secret(level) then
+            local r, g, b, text = 1, 1, 1, tostring(level)
+            if level <= 0 then
+                r, g, b, text = 1, 0.1, 0.1, "??"
+            else
+                local color
+                if GetCreatureDifficultyColor then
+                    color = GetCreatureDifficultyColor(level)
+                elseif GetQuestDifficultyColor then
+                    color = GetQuestDifficultyColor(level)
+                end
+                if color then r, g, b = color.r, color.g, color.b end
+            end
+            f.levelPrefix = string.format("|cff%02x%02x%02x[%s]|r ", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5),
+                math.floor(b * 255 + 0.5), text)
+        end
+    end
+    updateName(f)
+end
+
+-- Border widths in whole physical pixels: the dark outer border is 1 UI unit but never under one pixel, the inset
+-- highlight is exactly 1 pixel. A width under a pixel shimmers on distant plates (their scale shrinks with
+-- distance), so the sizes are re-measured as the scale changes (see the ticker in Start).
+local function applyBorderSize(f)
+    if f.friendly or not f.borders then return end
+    local pixel = ns.PixelSize(f)
+    if f.borderPx and math.abs(f.borderPx - pixel) < 0.01 then return end
+    f.borderPx = pixel
+    f.borders:SetSize(math.max(1, pixel))
+    f.hlBorders:SetSize(pixel)
 end
 
 local function updateOutline(f)
@@ -298,16 +348,21 @@ local function updateOutline(f)
     local c = cfg()
     if f.friendly then
         f.borders:SetColor(0, 0, 0, 0)
+        f.hl:Hide()
         f:SetScale(isTarget and c.targetScale or 1)
         f:SetAlpha(1)
         return
     end
     f:SetScale(isTarget and c.targetScale or 1)
-    f.borders:SetColor(r, g, b, 1)
-    -- target outline: as thin as the screen allows (one physical pixel), other borders stay 1
-    local px = 1
-    if isTarget and c.highlightTarget then px = math.min(1, ns.PixelSize(f)) end
-    f.borders:SetSize(px)
+    f.borders:SetColor(0, 0, 0, 1)
+    if r ~= 0 or g ~= 0 or b ~= 0 then
+        f.hlBorders:SetColor(r, g, b, 1)
+        f.hl:Show()
+    else
+        f.hl:Hide()
+    end
+    f.borderPx = nil
+    applyBorderSize(f)
     f:SetAlpha((isTarget or not c.dimOthers) and 1 or c.dimAlpha)
 end
 
@@ -433,7 +488,7 @@ end
 
 local function updateAll(f)
     if not f.unit then return end
-    updateName(f)
+    updateLevel(f)
     updateHealth(f)
     updateOutline(f)
     updateRaid(f)
@@ -589,7 +644,7 @@ end
 ----------------------------------------------------------------------
 HANDLERS = {
     UNIT_HEALTH = updateHealth, UNIT_MAXHEALTH = updateHealth, UNIT_HEALTH_FREQUENT = updateHealth,
-    UNIT_NAME_UPDATE = updateName, UNIT_FACTION = updateAll, UNIT_FLAGS = updateHealth,
+    UNIT_NAME_UPDATE = updateName, UNIT_LEVEL = updateLevel, UNIT_FACTION = updateAll, UNIT_FLAGS = updateHealth,
     UNIT_THREAT_LIST_UPDATE = updateOutline, UNIT_THREAT_SITUATION_UPDATE = updateOutline,
     UNIT_AURA = updateAuras,
     UNIT_SPELLCAST_START = updateCast, UNIT_SPELLCAST_STOP = updateCast, UNIT_SPELLCAST_FAILED = updateCast,
@@ -691,6 +746,13 @@ function NP:Start()
     ev:RegisterEvent("RAID_TARGET_UPDATE")
     ev:RegisterEvent("PLAYER_REGEN_DISABLED")
     ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+    local acc = 0
+    ev:SetScript("OnUpdate", function(_, dt)
+        acc = acc + dt
+        if acc < 0.1 then return end
+        acc = 0
+        for _, f in pairs(active) do pcall(applyBorderSize, f) end
+    end)
     -- plates that exist already (reload)
     if C_NamePlate and C_NamePlate.GetNamePlates then
         for _, plate in ipairs(C_NamePlate.GetNamePlates()) do
