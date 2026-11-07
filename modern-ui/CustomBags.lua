@@ -650,7 +650,9 @@ end
 -- functions taints the secure path that opens the bank / merchant / mail and
 -- gives "action only available to the Blizzard UI". Let Blizzard open its own
 -- frames, then hide them and show ours instead.
+local hiding = 0
 local function hideBlizzardBags()
+    hiding = hiding + 1
     local list = { _G.ContainerFrameCombinedBags }
     for i = 1, 13 do list[#list + 1] = _G["ContainerFrame" .. i] end
     for _, f in ipairs(list) do
@@ -658,13 +660,33 @@ local function hideBlizzardBags()
             pcall(f.Hide, f)
         end
     end
+    hiding = hiding - 1
 end
 
-local function post(name, handler)
+-- Blizzard's Toggle*/Open* call each other and per-bag functions, so one key press fires several
+-- hooks (inner ones first, the outermost last). Collect them and act once next frame: the last
+-- intent wins, and "toggle" is relative to our state before the first hook.
+local pending
+local function resolve()
+    local p = pending
+    pending = nil
+    if not p or not CB.active then return end
+    if p.kind == "open" then CB:Open()
+    elseif p.kind == "close" then CB:Close()
+    elseif p.was then CB:Close()
+    else CB:Open() end
+end
+
+local function post(name, kind, ranged)
     if type(_G[name]) ~= "function" then return end
-    hooksecurefunc(name, function(...)
-        if not CB.active then return end
-        handler(...)
+    hooksecurefunc(name, function(id)
+        if not CB.active or hiding > 0 then return end
+        if ranged and not inRange(id) then return end
+        if not pending then
+            pending = { was = CB:IsOpen() }
+            C_Timer.After(0, resolve)
+        end
+        pending.kind = kind
         hideBlizzardBags()
     end)
 end
@@ -672,12 +694,12 @@ end
 local function install()
     if installed then return end
     installed = true
-    for _, n in ipairs({ "ToggleAllBags", "ToggleBackpack" }) do post(n, function() CB:Toggle() end) end
-    for _, n in ipairs({ "OpenAllBags", "OpenBackpack" }) do post(n, function() CB:Open() end) end
-    for _, n in ipairs({ "CloseAllBags", "CloseBackpack" }) do post(n, function() CB:Close() end) end
-    post("ToggleBag", function(id) if inRange(id) then CB:Toggle() end end)
-    post("OpenBag", function(id) if inRange(id) then CB:Open() end end)
-    post("CloseBag", function(id) if inRange(id) then CB:Close() end end)
+    for _, n in ipairs({ "ToggleAllBags", "ToggleBackpack" }) do post(n, "toggle") end
+    for _, n in ipairs({ "OpenAllBags", "OpenBackpack" }) do post(n, "open") end
+    for _, n in ipairs({ "CloseAllBags", "CloseBackpack" }) do post(n, "close") end
+    post("ToggleBag", "toggle", true)
+    post("OpenBag", "open", true)
+    post("CloseBag", "close", true)
     local list = { _G.ContainerFrameCombinedBags }
     for i = 1, 13 do list[#list + 1] = _G["ContainerFrame" .. i] end
     for _, f in ipairs(list) do
