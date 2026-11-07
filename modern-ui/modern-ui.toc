@@ -18,6 +18,7 @@ ActionBars.lua
 UnitFrames.lua
 MenuBars.lua
 Bags.lua
+CustomBags.lua
 Skins.lua
 Vendor.lua
 Minimap.lua

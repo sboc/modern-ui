@@ -1,0 +1,716 @@
+local ADDON, ns = ...
+local UI = ns.UI
+local BW = ns.BagWindows
+
+-- Grouped bag window: one window that replaces Blizzard's bag windows and sorts the items into labeled sections
+-- (new items, quest, equipment, food, potions, ...). Every item is a real Blizzard item button tied to its real bag and
+-- slot, so click / use / split / drag / tooltips / cooldowns behave exactly like the default bags. Sections come from the
+-- item class; items can be moved into any section (or into your own sections) by dragging them onto a section header.
+-- Buttons cannot be moved or shown in combat, so layout changes made in combat wait until it ends.
+local CB = ns:NewModule("custombags")
+ns.CustomBags = CB
+
+local PAD, GAP, HEADER_H, TOP_H, FOOT_H = 8, 3, 18, 58, 24
+
+-- built-in sections in display order (custom sections come first)
+local SECTIONS = {
+    { key = "NEW",        label = "New items" },
+    { key = "QUEST",      label = "Quest" },
+    { key = "EQUIP",      label = "Equipment" },
+    { key = "FOOD",       label = "Food & drink" },
+    { key = "POTION",     label = "Potions & elixirs" },
+    { key = "CONSUMABLE", label = "Consumables" },
+    { key = "TRADE",      label = "Trade goods" },
+    { key = "GEMS",       label = "Gems" },
+    { key = "RECIPE",     label = "Recipes" },
+    { key = "CONTAINER",  label = "Bags & containers" },
+    { key = "MISC",       label = "Miscellaneous" },
+    { key = "JUNK",       label = "Junk" },
+}
+local builtin = {}
+for _, s in ipairs(SECTIONS) do builtin[s.key] = s end
+
+-- item class (GetItemInfoInstant classID) -> section
+local CLASS_SECTION = {
+    [1] = "CONTAINER", [2] = "EQUIP", [3] = "GEMS", [4] = "EQUIP", [5] = "TRADE", [7] = "TRADE",
+    [9] = "RECIPE", [11] = "CONTAINER", [12] = "QUEST",
+}
+
+local function cfg() return ns.db.custombags end
+local function isSecret(v) return ns.IsSecret and ns.IsSecret(v) end
+
+local function bagRange()
+    return 0, (NUM_BAG_SLOTS or 4) + (NUM_REAGENTBAG_SLOTS or 0)
+end
+
+local function inRange(id)
+    local first, last = bagRange()
+    return type(id) == "number" and id >= first and id <= last
+end
+
+local function numSlots(bag)
+    local fn = (C_Container and C_Container.GetContainerNumSlots) or GetContainerNumSlots
+    return fn and fn(bag) or 0
+end
+
+local function itemInfo(bag, slot)
+    local fn = C_Container and C_Container.GetContainerItemInfo
+    if not fn then return end
+    local ok, info = pcall(fn, bag, slot)
+    if ok and type(info) == "table" then return info end
+end
+
+local frame, content, footMoney, footFree, searchBox
+local buttons, bagFrames, headers = {}, {}, {}
+local lastSig
+local dragging = false
+local search = ""
+local refreshQueued = false
+
+----------------------------------------------------------------------
+-- Sections
+----------------------------------------------------------------------
+local function customKey(name) return "c:" .. name end
+
+local function isCustom(key) return type(key) == "string" and key:sub(1, 2) == "c:" end
+
+local function validKey(key)
+    if builtin[key] then return true end
+    if isCustom(key) then
+        for _, n in ipairs(cfg().sections) do if customKey(n) == key then return true end end
+    end
+    return false
+end
+
+local function sectionLabel(key)
+    if builtin[key] then return builtin[key].label end
+    return key:sub(3)
+end
+
+local classCache = {}
+local function classOf(id, link)
+    local c = classCache[id]
+    if c then return c[1], c[2] end
+    local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+    if not getInstant then return end
+    local _, _, _, _, _, classID, subClassID = getInstant(link or id)
+    if classID then classCache[id] = { classID, subClassID or 0 } end
+    return classID, subClassID
+end
+
+local function isNew(bag, slot)
+    local api = C_NewItems and C_NewItems.IsNewItem
+    if not api then return false end
+    local ok, v = pcall(api, bag, slot)
+    return ok and v and not isSecret(v) or false
+end
+
+local function categoryOf(e)
+    local pin = cfg().pins[e.id]
+    if pin and validKey(pin) then return pin end
+    if cfg().showNew and isNew(e.bag, e.slot) then return "NEW" end
+    if e.quality == 0 then return "JUNK" end
+    local classID, subClassID = classOf(e.id, e.link)
+    if classID == 0 then
+        if subClassID == 5 then return "FOOD" end
+        if subClassID == 1 or subClassID == 2 or subClassID == 3 then return "POTION" end
+        return "CONSUMABLE"
+    end
+    return CLASS_SECTION[classID] or "MISC"
+end
+
+----------------------------------------------------------------------
+-- Items
+----------------------------------------------------------------------
+local function gather()
+    local entries, empties = {}, {}
+    local first, last = bagRange()
+    for bag = first, last do
+        for slot = 1, numSlots(bag) do
+            local e = { bag = bag, slot = slot }
+            local info = itemInfo(bag, slot)
+            if info and info.itemID and not isSecret(info.itemID) then
+                e.info = info
+                e.id = info.itemID
+                e.link = (type(info.hyperlink) == "string" and not isSecret(info.hyperlink)) and info.hyperlink or nil
+                e.quality = (type(info.quality) == "number" and not isSecret(info.quality)) and info.quality or 1
+                e.count = (type(info.stackCount) == "number" and not isSecret(info.stackCount)) and info.stackCount or 1
+                e.name = e.link and e.link:match("%[(.-)%]") or ""
+                entries[#entries + 1] = e
+            else
+                e.empty = true
+                empties[#empties + 1] = e
+            end
+        end
+    end
+    return entries, empties
+end
+
+local function sortItems(a, b)
+    if a.quality ~= b.quality then return a.quality > b.quality end
+    if a.name ~= b.name then return a.name < b.name end
+    if a.id ~= b.id then return a.id < b.id end
+    if a.count ~= b.count then return a.count > b.count end
+    if a.bag ~= b.bag then return a.bag < b.bag end
+    return a.slot < b.slot
+end
+
+local function bagFrame(bag)
+    local f = bagFrames[bag]
+    if not f then
+        f = CreateFrame("Frame", "ModernUIBagContainer" .. bag, content)
+        f:SetID(bag)
+        f:SetAllPoints(content)
+        bagFrames[bag] = f
+    end
+    return f
+end
+
+local function updateCooldown(btn, bag, slot)
+    local cd = btn.Cooldown or btn.cooldown
+    local fn = C_Container and C_Container.GetContainerItemCooldown
+    if not (cd and fn) then return end
+    pcall(function()
+        local start, duration, enable = fn(bag, slot)
+        if CooldownFrame_Set then
+            CooldownFrame_Set(cd, start, duration, enable)
+        elseif start and duration then
+            cd:SetCooldown(start, duration)
+        end
+    end)
+end
+
+local function setQuality(btn, quality)
+    local ib = btn.IconBorder
+    if type(ib) == "table" then
+        local color = quality and quality >= 1 and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
+        if color then
+            pcall(ib.SetVertexColor, ib, color.r, color.g, color.b)
+            ib:Show()
+        else
+            ib:Hide()
+        end
+    end
+    if BW and BW.SyncQuality then BW.SyncQuality(btn) end
+end
+
+local function updateButton(btn, e)
+    local info = e.info
+    local icon = info and info.iconFileID
+    if SetItemButtonTexture then
+        SetItemButtonTexture(btn, icon)
+    elseif btn.icon then
+        btn.icon:SetTexture(icon)
+        btn.icon:SetShown(icon ~= nil)
+    end
+    if SetItemButtonCount then SetItemButtonCount(btn, info and e.count or 0) end
+    if SetItemButtonDesaturated then
+        SetItemButtonDesaturated(btn, info and info.isLocked and not isSecret(info.isLocked) or false)
+    end
+    btn.hasItem = info and true or nil
+    setQuality(btn, info and e.quality or nil)
+    if btn.JunkIcon and btn.JunkIcon.SetShown then
+        btn.JunkIcon:SetShown(info and e.quality == 0 and not info.hasNoValue or false)
+    end
+    if info then updateCooldown(btn, e.bag, e.slot) elseif btn.Cooldown then pcall(btn.Cooldown.Clear, btn.Cooldown) end
+    local dim = false
+    if search ~= "" and info then dim = not (e.name:lower():find(search, 1, true)) end
+    btn:SetAlpha(dim and 0.25 or 1)
+end
+
+local function createButton(bag, slot)
+    if InCombatLockdown() then return end
+    local name = "ModernUIBagItem" .. bag .. "_" .. slot
+    local parent = bagFrame(bag)
+    local ok, btn = pcall(CreateFrame, "ItemButton", name, parent, "ContainerFrameItemButtonTemplate")
+    if not ok or not btn then
+        ok, btn = pcall(CreateFrame, "Button", name, parent, "ContainerFrameItemButtonTemplate")
+    end
+    if not ok or not btn then
+        if not CB.warned then
+            CB.warned = true
+            ns:Print("Grouped bags: could not create item buttons on this client (" .. tostring(btn) .. ").")
+        end
+        return
+    end
+    btn:SetID(slot)
+    btn.molBag, btn.molSlot = bag, slot
+    if BW and BW.StyleSlot then pcall(BW.StyleSlot, btn) end
+    pcall(btn.HookScript, btn, "OnEnter", function(self)
+        -- Blizzard's own handler fills the tooltip; if it did not, do it here
+        C_Timer.After(0, function()
+            if not self:IsMouseOver() then return end
+            if not (GameTooltip:IsShown() and GameTooltip:GetOwner() == self) then
+                pcall(function()
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetBagItem(bag, slot)
+                    GameTooltip:Show()
+                end)
+            end
+            if C_NewItems and C_NewItems.RemoveNewItem then pcall(C_NewItems.RemoveNewItem, bag, slot) end
+        end)
+    end)
+    buttons[bag] = buttons[bag] or {}
+    buttons[bag][slot] = btn
+    return btn
+end
+
+local function getButton(bag, slot)
+    local t = buttons[bag]
+    return (t and t[slot]) or createButton(bag, slot)
+end
+
+----------------------------------------------------------------------
+-- Headers (section titles, also drop targets)
+----------------------------------------------------------------------
+local function dropOnHeader(h)
+    if h.kind == "free" then return false end
+    local kind, id = GetCursorInfo()
+    if kind ~= "item" or type(id) ~= "number" then return false end
+    ClearCursor()
+    if h.kind == "new" then
+        UI.Prompt("New section name", "", function(text)
+            text = (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            if text == "" then return end
+            local exists = false
+            for _, n in ipairs(cfg().sections) do if n == text then exists = true end end
+            if not exists then table.insert(cfg().sections, text) end
+            cfg().pins[id] = customKey(text)
+            lastSig = nil
+            CB:Refresh()
+        end)
+    elseif h.kind == "auto" then
+        cfg().pins[id] = nil
+    else
+        cfg().pins[id] = h.key
+    end
+    lastSig = nil
+    CB:Refresh()
+    return true
+end
+
+local function deleteSection(key)
+    local name = key:sub(3)
+    for i, n in ipairs(cfg().sections) do
+        if n == name then table.remove(cfg().sections, i) break end
+    end
+    for id, k in pairs(cfg().pins) do
+        if k == key then cfg().pins[id] = nil end
+    end
+    cfg().collapsed[key] = nil
+    lastSig = nil
+    CB:Refresh()
+end
+
+local function makeHeader(i)
+    local h = CreateFrame("Button", nil, content)
+    h:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    h.bg = h:CreateTexture(nil, "BACKGROUND")
+    h.bg:SetAllPoints()
+    h.bg:SetColorTexture(1, 1, 1, 0.05)
+    h.text = UI.Text(h, "", "GameFontNormal", "LEFT")
+    h.text:SetPoint("LEFT", 4, 0)
+    h.text:SetPoint("RIGHT", -4, 0)
+    h:SetScript("OnEnter", function(self) self.bg:SetColorTexture(1, 1, 1, 0.12) end)
+    h:SetScript("OnLeave", function(self) self.bg:SetColorTexture(1, 1, 1, 0.05) end)
+    h:SetScript("OnReceiveDrag", function(self) dropOnHeader(self) end)
+    h:SetScript("OnClick", function(self, mouse)
+        if dropOnHeader(self) then return end
+        if self.kind then return end
+        if mouse == "RightButton" and isCustom(self.key) then
+            UI.Confirm("Delete the section \"" .. sectionLabel(self.key) .. "\"? Its items go back to their automatic sections.",
+                function() deleteSection(self.key) end)
+        elseif mouse == "LeftButton" then
+            cfg().collapsed[self.key] = not cfg().collapsed[self.key] or nil
+            lastSig = nil
+            CB:Refresh()
+        end
+    end)
+    headers[i] = h
+    return h
+end
+
+----------------------------------------------------------------------
+-- Layout
+----------------------------------------------------------------------
+local function fitScale(height)
+    local avail = UIParent:GetHeight() * 0.92
+    local s = math.min(1, avail / math.max(height, 1))
+    if math.abs(frame:GetScale() - s) > 0.005 then frame:SetScale(s) end
+end
+
+local function layout(groups, freeGroup)
+    local c = cfg()
+    local size, cols = c.slotSize, c.columns
+    local step = size + GAP
+    local width = cols * step - GAP
+    local y = 0
+    local used = {}
+    local hi = 0
+
+    local function header(key, label, count, kind)
+        hi = hi + 1
+        local h = headers[hi] or makeHeader(hi)
+        h.key, h.kind = key, kind
+        h:ClearAllPoints()
+        h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+        h:SetSize(width, HEADER_H)
+        local collapsed = not kind and c.collapsed[key]
+        local r, g, b = 1, 0.82, 0
+        if kind then r, g, b = 0.62, 0.62, 0.68 elseif isCustom(key) then r, g, b = 0.30, 0.82, 1 end
+        h.text:SetTextColor(r, g, b)
+        h.text:SetText((kind and "" or (collapsed and "+ " or "- ")) .. label .. (count and (" (" .. count .. ")") or ""))
+        h:Show()
+        y = y + HEADER_H + 2
+        return collapsed
+    end
+
+    local function place(items)
+        for i, e in ipairs(items) do
+            local btn = getButton(e.bag, e.slot)
+            if btn then
+                local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
+                btn:ClearAllPoints()
+                btn:SetPoint("TOPLEFT", content, "TOPLEFT", col * step, -(y + row * step))
+                btn:SetSize(size, size)
+                btn:Show()
+                used[btn] = true
+            end
+        end
+        y = y + math.ceil(#items / cols) * step + 4
+    end
+
+    for _, g in ipairs(groups) do
+        local collapsed = header(g.key, sectionLabel(g.key), #g.items)
+        if not collapsed then place(g.items) end
+    end
+    if freeGroup then
+        header("FREE", "Empty slots", freeGroup.total, "free")
+        place(freeGroup.items)
+    end
+    if dragging then
+        header("NEW", "+ New section (drop an item here)", nil, "new")
+        header("AUTO", "Automatic (drop an item here to reset it)", nil, "auto")
+    end
+
+    for _, t in pairs(buttons) do
+        for _, btn in pairs(t) do
+            if not used[btn] then btn:Hide() end
+        end
+    end
+    for i = hi + 1, #headers do headers[i]:Hide() end
+
+    content:SetSize(width, math.max(y, 1))
+    local w = math.max(width + 2 * PAD, 250)
+    local h = y + TOP_H + FOOT_H + PAD
+    frame:SetSize(w, h)
+    fitScale(h)
+end
+
+local function buildGroups(entries, empties)
+    local byKey = {}
+    for _, e in ipairs(entries) do
+        local k = categoryOf(e)
+        local g = byKey[k]
+        if not g then g = { key = k, items = {} } byKey[k] = g end
+        g.items[#g.items + 1] = e
+    end
+    local groups = {}
+    local function add(key)
+        local g = byKey[key]
+        if g then
+            table.sort(g.items, sortItems)
+            groups[#groups + 1] = g
+        elseif dragging then
+            groups[#groups + 1] = { key = key, items = {} }
+        end
+    end
+    for _, n in ipairs(cfg().sections) do add(customKey(n)) end
+    for _, s in ipairs(SECTIONS) do add(s.key) end
+
+    -- one real empty slot stays visible so items can be dropped into the bags; it shows how many are free.
+    -- Regular bags first (a reagent bag only takes reagents).
+    local pick
+    for _, e in ipairs(empties) do
+        if e.bag <= (NUM_BAG_SLOTS or 4) then pick = e break end
+    end
+    pick = pick or empties[1]
+    local free = pick and { items = { pick }, total = #empties } or nil
+    return groups, free
+end
+
+local function signature(groups, free)
+    local c = cfg()
+    local parts = { c.columns, c.slotSize, dragging and "d" or "n" }
+    for _, g in ipairs(groups) do
+        parts[#parts + 1] = g.key .. (c.collapsed[g.key] and "!" or ":")
+        if not c.collapsed[g.key] then
+            for _, e in ipairs(g.items) do parts[#parts + 1] = e.bag .. "," .. e.slot end
+        end
+    end
+    if free then parts[#parts + 1] = "f" .. free.items[1].bag .. "," .. free.items[1].slot end
+    return table.concat(parts, " ")
+end
+
+-- gold / silver / copper with the coin icons; plain coloured letters if this client has no coin-string call
+local function moneyText(copper)
+    local api = (C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString) or GetCoinTextureString
+    if api then
+        local ok, text = pcall(api, copper, 12)
+        if ok and type(text) == "string" and text ~= "" then return text end
+    end
+    local g = math.floor(copper / 10000)
+    local sv = math.floor(copper / 100) % 100
+    local cp = copper % 100
+    return string.format("|cffffd700%d|rg |cffc7c7cf%d|rs |cffeda55f%d|rc", g, sv, cp)
+end
+
+function CB:Refresh()
+    if not frame or not frame:IsShown() then return end
+    local entries, empties = gather()
+    local combat = InCombatLockdown()
+
+    -- make sure every slot has a button (only possible out of combat)
+    if not combat then
+        for _, e in ipairs(entries) do getButton(e.bag, e.slot) end
+        for _, e in ipairs(empties) do getButton(e.bag, e.slot) end
+    end
+
+    local groups, free = buildGroups(entries, empties)
+    local sig = signature(groups, free)
+    if sig ~= lastSig then
+        if combat then
+            ns:AfterCombat("custombags", function() lastSig = nil CB:Refresh() end)
+        else
+            lastSig = sig
+            layout(groups, free)
+        end
+    end
+
+    for _, e in ipairs(entries) do
+        local btn = buttons[e.bag] and buttons[e.bag][e.slot]
+        if btn then pcall(updateButton, btn, e) end
+    end
+    for _, e in ipairs(empties) do
+        local btn = buttons[e.bag] and buttons[e.bag][e.slot]
+        if btn then
+            pcall(updateButton, btn, e)
+            if free and free.items[1] == e and SetItemButtonCount then SetItemButtonCount(btn, free.total) end
+        end
+    end
+
+    local total = #entries + #empties
+    footFree:SetText(string.format("%d / %d", #entries, total))
+    footMoney:SetText(moneyText(GetMoney and GetMoney() or 0))
+end
+
+local function requestRefresh()
+    if refreshQueued or not frame or not frame:IsShown() then return end
+    refreshQueued = true
+    C_Timer.After(0, function()
+        refreshQueued = false
+        CB:Refresh()
+    end)
+end
+
+----------------------------------------------------------------------
+-- Window
+----------------------------------------------------------------------
+local function savePosition()
+    local point, _, rel, x, y = frame:GetPoint()
+    if point then cfg().position = { point = point, rel = rel, x = x, y = y } end
+end
+
+local function applyPosition()
+    local p = cfg().position
+    frame:ClearAllPoints()
+    if p then
+        frame:SetPoint(p.point, UIParent, p.rel, p.x, p.y)
+    else
+        frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -70, 110)
+    end
+end
+
+local function sound(kind)
+    pcall(function()
+        if SOUNDKIT then PlaySound(kind == "open" and SOUNDKIT.IG_BACKPACK_OPEN or SOUNDKIT.IG_BACKPACK_CLOSE) end
+    end)
+end
+
+local function build()
+    if frame then return true end
+    if InCombatLockdown() then return false end
+    frame = UI.Box(UIParent, { 0.04, 0.04, 0.05, 0.92 })
+    _G.ModernUIBagFrame = frame
+    table.insert(UISpecialFrames, "ModernUIBagFrame")
+    frame:SetFrameStrata("DIALOG")
+    frame:SetToplevel(true)
+    frame:EnableMouse(true)
+    frame:SetMovable(true)
+    frame:SetClampedToScreen(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        savePosition()
+    end)
+    frame:SetScript("OnShow", function()
+        sound("open")
+        lastSig = nil
+        CB:Refresh()
+    end)
+    frame:SetScript("OnHide", function()
+        sound("close")
+        if searchBox then searchBox:ClearFocus() end
+        if C_NewItems and C_NewItems.ClearAll then pcall(C_NewItems.ClearAll) end
+    end)
+    frame:Hide()
+    applyPosition()
+
+    local title = UI.Text(frame, "Bags", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", PAD + 2, -8)
+
+    local close = UI.Button(frame, "X", 22, 20, function() frame:Hide() end)
+    close:SetPoint("TOPRIGHT", -6, -6)
+    local sort = UI.Button(frame, "Sort", 46, 20, function()
+        pcall(function()
+            if C_Container and C_Container.SortBags then C_Container.SortBags() elseif SortBags then SortBags() end
+        end)
+    end)
+    sort:SetPoint("RIGHT", close, "LEFT", -4, 0)
+
+    searchBox = CreateFrame("EditBox", nil, frame)
+    searchBox:SetFontObject("GameFontHighlight")
+    pcall(searchBox.SetFont, searchBox, ns.DEFAULT_FONT, 13, "")
+    searchBox:SetAutoFocus(false)
+    searchBox:SetHeight(20)
+    searchBox:SetPoint("TOPLEFT", PAD, -32)
+    searchBox:SetPoint("TOPRIGHT", -PAD, -32)
+    searchBox:SetTextInsets(6, 6, 0, 0)
+    searchBox.bg = searchBox:CreateTexture(nil, "BACKGROUND")
+    searchBox.bg:SetAllPoints()
+    searchBox.bg:SetColorTexture(unpack(UI.colors.panel))
+    UI.AddBorder(searchBox, 1, 0, 0, 0, 1)
+    searchBox.hint = UI.Text(searchBox, "Search", "GameFontDisable", "LEFT")
+    searchBox.hint:SetPoint("LEFT", 6, 0)
+    searchBox:SetScript("OnEscapePressed", function(self) self:SetText("") self:ClearFocus() end)
+    searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    searchBox:SetScript("OnTextChanged", function(self)
+        search = (self:GetText() or ""):lower()
+        self.hint:SetShown(search == "")
+        CB:Refresh()
+    end)
+
+    content = CreateFrame("Frame", nil, frame)
+    content:SetPoint("TOPLEFT", PAD, -TOP_H)
+    content:SetSize(10, 10)
+
+    footMoney = UI.Text(frame, "", "GameFontHighlight", "LEFT")
+    footMoney:SetPoint("BOTTOMLEFT", PAD + 2, 8)
+    footFree = UI.Text(frame, "", "GameFontHighlight", "RIGHT")
+    footFree:SetPoint("BOTTOMRIGHT", -PAD - 2, 8)
+    footFree:SetTextColor(unpack(UI.colors.dim))
+    return true
+end
+
+-- Cursor carrying an item: show every section (and the "new section" drop target) so it can be dropped on one.
+local function onCursor()
+    if not (frame and frame:IsShown()) then return end
+    local kind = GetCursorInfo()
+    local now = kind == "item"
+    if now ~= dragging then
+        dragging = now
+        requestRefresh()
+    end
+end
+
+----------------------------------------------------------------------
+-- Replacing the bag open / close functions
+----------------------------------------------------------------------
+local installed = false
+local originals = {}
+
+function CB:IsOpen() return frame and frame:IsShown() or false end
+
+function CB:Open()
+    if not build() then return false end
+    frame:Show()
+    return true
+end
+
+function CB:Close()
+    if frame then frame:Hide() end
+end
+
+function CB:Toggle()
+    if CB:IsOpen() then CB:Close() return true end
+    return CB:Open()
+end
+
+local function wrap(name, handler)
+    local original = _G[name]
+    if type(original) ~= "function" then return end
+    originals[name] = original
+    _G[name] = function(...)
+        if CB.active then
+            local handled, result = handler(original, ...)
+            if handled then return result end
+        end
+        return original(...)
+    end
+end
+
+local function install()
+    if installed then return end
+    installed = true
+    local function all(action)
+        return function(original, ...)
+            if action == "open" then return CB:Open(), nil end
+            if action == "toggle" then return CB:Toggle(), nil end
+            CB:Close()
+            return false   -- let Blizzard close whatever else it had open (bank bags ...)
+        end
+    end
+    for _, n in ipairs({ "ToggleAllBags", "ToggleBackpack" }) do wrap(n, all("toggle")) end
+    for _, n in ipairs({ "OpenAllBags", "OpenBackpack" }) do wrap(n, all("open")) end
+    for _, n in ipairs({ "CloseAllBags", "CloseBackpack" }) do wrap(n, all("close")) end
+    wrap("ToggleBag", function(_, id) if inRange(id) then return CB:Toggle() end end)
+    wrap("OpenBag", function(_, id) if inRange(id) then return CB:Open() end end)
+    wrap("CloseBag", function(_, id) if inRange(id) then CB:Close() return true end end)
+    wrap("IsBagOpen", function(_, id) if inRange(id) then return true, CB:IsOpen() end end)
+end
+
+function CB:Clear()
+    if not ns.db then return end
+    cfg().pins = {}
+    lastSig = nil
+    CB:Refresh()
+end
+
+function CB:Apply()
+    if not ns.db then return end
+    if cfg().enabled then
+        install()
+        CB.active = true
+    else
+        CB.active = false
+        if frame and frame:IsShown() then frame:Hide() end
+    end
+    if frame then
+        frame.bg:SetColorTexture(0.04, 0.04, 0.05, ns.db.bagwindows.bgAlpha or 0.92)
+        lastSig = nil
+        CB:Refresh()
+    end
+end
+
+function CB:Init()
+    for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED", "BAG_UPDATE_COOLDOWN",
+                         "PLAYER_MONEY", "BAG_NEW_ITEMS_UPDATED" }) do
+        ns:On(e, requestRefresh)
+    end
+    ns:On("CURSOR_CHANGED", onCursor)
+    if cfg().enabled then
+        install()
+        CB.active = true
+    end
+end

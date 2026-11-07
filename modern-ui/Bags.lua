@@ -138,6 +138,10 @@ end
 ----------------------------------------------------------------------
 -- Windows
 ----------------------------------------------------------------------
+-- used by the grouped bag window (CustomBags.lua) for its own item buttons
+BW.StyleSlot = styleSlot
+BW.SyncQuality = syncQuality
+
 local function restyleFrame(frame)
     local c = cfg()
     local bg = frame.molBG

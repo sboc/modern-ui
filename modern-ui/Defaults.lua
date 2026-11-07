@@ -151,6 +151,8 @@ ns.defaults = {
     },
     bagwindows = { enabled = true, skin = true, bgAlpha = 0.92, borders = true, qualityColors = true,
                    movable = true, positions = {} },
+    custombags = { enabled = false, columns = 10, slotSize = 36, showNew = true,
+                   sections = {}, pins = {}, collapsed = {} },   -- own sections, itemID -> section key, collapsed sections
     vendor = { autoSellJunk = true, summary = true },
     consumables = {
         enabled = true,    -- keep the Food / Water / Health Potion macros pointed at the best item in the bags
