@@ -628,7 +628,6 @@ end
 -- Replacing the bag open / close functions
 ----------------------------------------------------------------------
 local installed = false
-local originals = {}
 
 function CB:IsOpen() return frame and frame:IsShown() or false end
 
@@ -647,37 +646,45 @@ function CB:Toggle()
     return CB:Open()
 end
 
-local function wrap(name, handler)
-    local original = _G[name]
-    if type(original) ~= "function" then return end
-    originals[name] = original
-    _G[name] = function(...)
-        if CB.active then
-            local handled, result = handler(original, ...)
-            if handled then return result end
+-- Post-hooks only: replacing Blizzard globals (OpenAllBags etc.) with addon
+-- functions taints the secure path that opens the bank / merchant / mail and
+-- gives "action only available to the Blizzard UI". Let Blizzard open its own
+-- frames, then hide them and show ours instead.
+local function hideBlizzardBags()
+    local list = { _G.ContainerFrameCombinedBags }
+    for i = 1, 13 do list[#list + 1] = _G["ContainerFrame" .. i] end
+    for _, f in ipairs(list) do
+        if f and f:IsShown() and (f == _G.ContainerFrameCombinedBags or inRange(f:GetID())) then
+            pcall(f.Hide, f)
         end
-        return original(...)
     end
+end
+
+local function post(name, handler)
+    if type(_G[name]) ~= "function" then return end
+    hooksecurefunc(name, function(...)
+        if not CB.active then return end
+        handler(...)
+        hideBlizzardBags()
+    end)
 end
 
 local function install()
     if installed then return end
     installed = true
-    local function all(action)
-        return function(original, ...)
-            if action == "open" then return CB:Open(), nil end
-            if action == "toggle" then return CB:Toggle(), nil end
-            CB:Close()
-            return false   -- let Blizzard close whatever else it had open (bank bags ...)
+    for _, n in ipairs({ "ToggleAllBags", "ToggleBackpack" }) do post(n, function() CB:Toggle() end) end
+    for _, n in ipairs({ "OpenAllBags", "OpenBackpack" }) do post(n, function() CB:Open() end) end
+    for _, n in ipairs({ "CloseAllBags", "CloseBackpack" }) do post(n, function() CB:Close() end) end
+    post("ToggleBag", function(id) if inRange(id) then CB:Toggle() end end)
+    post("OpenBag", function(id) if inRange(id) then CB:Open() end end)
+    post("CloseBag", function(id) if inRange(id) then CB:Close() end end)
+    local list = { _G.ContainerFrameCombinedBags }
+    for i = 1, 13 do list[#list + 1] = _G["ContainerFrame" .. i] end
+    for _, f in ipairs(list) do
+        if f and f.HookScript then
+            f:HookScript("OnShow", function() if CB.active then hideBlizzardBags() end end)
         end
     end
-    for _, n in ipairs({ "ToggleAllBags", "ToggleBackpack" }) do wrap(n, all("toggle")) end
-    for _, n in ipairs({ "OpenAllBags", "OpenBackpack" }) do wrap(n, all("open")) end
-    for _, n in ipairs({ "CloseAllBags", "CloseBackpack" }) do wrap(n, all("close")) end
-    wrap("ToggleBag", function(_, id) if inRange(id) then return CB:Toggle() end end)
-    wrap("OpenBag", function(_, id) if inRange(id) then return CB:Open() end end)
-    wrap("CloseBag", function(_, id) if inRange(id) then CB:Close() return true end end)
-    wrap("IsBagOpen", function(_, id) if inRange(id) then return true, CB:IsOpen() end end)
 end
 
 function CB:Clear()
