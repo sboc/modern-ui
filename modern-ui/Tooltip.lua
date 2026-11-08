@@ -68,10 +68,31 @@ local function fonts()
     end
 end
 
--- item quality border
+-- true when the tooltip is owned by a quest reward / choice button, so it can be told apart from the
+-- equipped-item comparison tooltips shown beside it
+local function isQuestReward(tooltip)
+    local owner = tooltip.GetOwner and tooltip:GetOwner()
+    for _ = 1, 4 do
+        if not owner then return false end
+        local name = owner.GetName and owner:GetName()
+        if owner.type == "reward" or owner.type == "choice"
+            or (name and (name:find("^QuestInfo") or name:find("^QuestProgressItem") or name:find("^QuestLogItem"))) then
+            return true
+        end
+        owner = owner.GetParent and owner:GetParent()
+    end
+    return false
+end
+
+-- item quality border (quest rewards get the accent blue instead)
 local function onItem(tooltip)
     if not (cfg().enabled and cfg().skin) then return end
     pcall(function()
+        if tooltip == _G.GameTooltip and isQuestReward(tooltip) then
+            local a = UI.colors.accent
+            setBorder(tooltip, a[1], a[2], a[3])
+            return
+        end
         local _, link = tooltip:GetItem()
         if not link then return end
         local quality = select(3, GetItemInfo(link))
