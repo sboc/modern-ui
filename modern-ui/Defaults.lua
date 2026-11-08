@@ -119,6 +119,7 @@ ns.defaults = {
         enabled = true, skin = true, bgAlpha = 0.88, move = true, width = 500, height = 220,
         fontSize = 16, hideButtons = true, timestamps = "%H:%M ", arrowKeys = true,
         combatLog = true, combatLogDone = false,
+        fadeDelay = 15, fadeAlpha = 0.2,   -- idle fade: seconds without activity (0 = never), faded opacity
         systemRight = true,   -- loot / system lines live in the right window only
         custom = true,   -- our own chat window (Blizzard's ChatFrame1 keeps routing the messages invisibly)
         tabs = { say = true, group = true, guild = true, whisper = true, channel = true, system = true },

@@ -254,6 +254,12 @@ local function toRight(e)
     return smf2 ~= nil and e.cat == "system" and cfg().systemRight
 end
 
+-- Idle fade: each window fades to fadeAlpha after fadeDelay seconds without new lines, mouse-over or typing.
+local lastActive = {}
+local function touch(p)
+    if p then lastActive[p] = GetTime() end
+end
+
 local function show(e, target)
     (target or smf):AddMessage(stamped(e), e.r, e.g, e.b, e.id)
     stats.shown = stats.shown + 1
@@ -261,9 +267,11 @@ end
 
 local function display(e)
     if toRight(e) then
+        touch(combatPanel)
         if rightTab == "system" then show(e, smf2) end
         return
     end
+    touch(panel)
     if currentTab == "all" or e.cat == currentTab then
         show(e)
     elseif tabButtons and tabButtons[e.cat] then
@@ -487,6 +495,7 @@ end
 local combatHooked = false
 local function onCombatMessage(_, text, r, g, b, id)
     if not cmf or text == nil then return end
+    if rightTab == "combat" then touch(combatPanel) end
     if not pcall(cmf.AddMessage, cmf, text, r or 1, g or 1, b or 1, id) then stats.errors = stats.errors + 1 end
 end
 
@@ -781,6 +790,36 @@ local function startWatchdog()
     end)
 end
 
+
+-- Idle fade driver
+local fader
+local function startFader()
+    if fader then return end
+    fader = CreateFrame("Frame")
+    fader:SetScript("OnUpdate", function(_, dt)
+        if not (ns.db and cfg().custom and cfg().enabled) then return end
+        local c = cfg()
+        local delay = c.fadeDelay or 0
+        local low = c.fadeAlpha or 0.2
+        local now = GetTime()
+        local eb = _G.ChatFrame1EditBox
+        local typing = eb and eb.IsShown and eb:IsShown()
+        for _, p in ipairs({ panel, combatPanel }) do
+            if p and p:IsShown() then
+                local active = delay <= 0 or p:IsMouseOver() or (p == panel and typing)
+                    or (now - (lastActive[p] or 0)) < delay
+                local target = active and 1 or low
+                local a = p:GetAlpha()
+                if a ~= target then
+                    local step = dt / 0.35 * (1 - low)
+                    if a < target then a = math.min(target, a + step) else a = math.max(target, a - step) end
+                    p:SetAlpha(a)
+                end
+            end
+        end
+    end)
+end
+
 local editHooked = false
 local function hookEditBox()
     if editHooked then return end
@@ -823,6 +862,7 @@ local function placeCustom()
         step("tabs-layout", function() layoutTabs(); refreshTabLook(); refreshRightLook() end)
         step("hide-blizzard", hideBlizzardGeneral)
         step("watchdog", startWatchdog)
+        step("fader", startFader)
         step("editbox", anchorEditBox)
         step("editbox-hook", hookEditBox)
         step("combatlog", placeCombatLog2)
