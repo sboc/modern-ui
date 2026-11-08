@@ -107,7 +107,9 @@ ns.defaults = {
     tracker = {
         enabled = true, scale = 1, alpha = 1, skin = true, background = true, bgAlpha = 0.55, attach = true,
         borders = true, fontSize = 0, overrideHeight = false, height = 500,
-        maxQuests = 0,   -- 0 = show every tracked quest
+        maxQuests = 0,   -- 0 = no limit; otherwise the highest level quests get untracked beyond this
+        hideGreyRed = true, sortByLevel = true,
+        pinned = {}, pinSeq = 0,   -- quests the player tracked by hand: [questID] = order
         aprSkin = true,   -- also skin Azeroth Pilot Reloaded's guide panels like the tracker (when installed)
     },
     databars = {

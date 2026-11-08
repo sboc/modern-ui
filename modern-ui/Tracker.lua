@@ -142,78 +142,157 @@ local function hookTrackers()
 end
 
 ----------------------------------------------------------------------
--- Quest limit
+-- Quest curation
 ----------------------------------------------------------------------
--- Blizzard's quest modules build the list of quests to draw in BuildQuestWatchInfos: the list is cut to the
--- configured count there (the quests stay tracked, they are just not drawn). The super tracked quest is always
--- kept. Only hooked once a limit is set; 0 hands the full list back.
-local LIMIT_MODULES = { "CampaignQuestObjectiveTracker", "QuestObjectiveTracker" }   -- in drawing order
-local limitState = {}
-local lastLimit = 0
+-- Nothing of Blizzard's is replaced (that taints the tracker's update): the tracked set and its order are
+-- managed through the normal quest log API. Blizzard draws quests in the order they were tracked, so
+-- re-tracking in level order sorts the tracker.
+--  * grey (trivial) and red (too high) quests are untracked, unless the player tracked them by hand
+--  * quests the player tracked by hand are "pinned": they stay tracked until they are turned in, abandoned
+--    or untracked by the player. Over the max count the oldest pinned one is untracked first.
+--  * the free slots go to the lowest level quests, the list is ordered lowest level first
+-- The super tracked quest is never untracked. Untracked quests stay in the quest log.
+local trimQueued, trimming = false, false
+local ignoreUntil = 0   -- watch list events caused by our own changes are not the player's doing
 
-local function limitMax()
-    local n = cfg().maxQuests or 0
-    return n > 0 and n or nil
+local function pins()
+    local c = cfg()
+    c.pinned = c.pinned or {}
+    return c.pinned
 end
 
-local function limitInfos(tracker, infos)
-    local max = limitMax()
-    local state = limitState[tracker]
-    if not (max and type(infos) == "table") then
-        if state then state.shown = #(infos or {}) end
-        return infos
-    end
-    -- quests already drawn by the modules before this one share the same budget
-    local used = 0
-    for _, name in ipairs(LIMIT_MODULES) do
-        local t = _G[name]
-        if t == tracker then break end
-        local st = t and limitState[t]
-        used = used + (st and st.shown or 0)
-    end
-    local budget = math.max(0, max - used)
-    if #infos <= budget then state.shown = #infos return infos end
-    local keep, n = {}, 0
-    local sup = budget > 0 and C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
-    if sup and sup ~= 0 then
-        for i, info in ipairs(infos) do
-            if info.quest and info.quest:GetID() == sup then keep[i] = true; n = 1; break end
-        end
-    end
-    for i = 1, #infos do
-        if n >= budget then break end
-        if not keep[i] then keep[i] = true; n = n + 1 end
-    end
-    local out = {}
-    for i, info in ipairs(infos) do
-        if keep[i] then out[#out + 1] = info end
-    end
-    state.shown = #out
-    return out
+local function pinQuest(id)
+    local c = cfg()
+    c.pinSeq = (c.pinSeq or 0) + 1
+    pins()[id] = c.pinSeq
 end
 
-local function applyLimit()
-    local max = limitMax() or 0
-    for _, name in ipairs(LIMIT_MODULES) do
-        local t = _G[name]
-        if t and type(t.BuildQuestWatchInfos) == "function" and not limitState[t] and max > 0 then
-            local state = { original = t.BuildQuestWatchInfos, shown = 0 }
-            limitState[t] = state
-            t.BuildQuestWatchInfos = function(self, ...)
-                local infos = state.original(self, ...)
-                local ok, out = pcall(limitInfos, self, infos)
-                return ok and out or infos
-            end
+local function levelOf(id)
+    local lvl = C_QuestLog.GetQuestDifficultyLevel and C_QuestLog.GetQuestDifficultyLevel(id)
+    if not lvl or lvl <= 0 then return nil end
+    return lvl
+end
+
+local function isGreyOrRed(lvl)
+    local p = UnitLevel("player") or 1
+    local green = (_G.GetQuestGreenRange and _G.GetQuestGreenRange("player")) or 8
+    return lvl <= p - green or lvl >= p + 5
+end
+
+local function byLevel(x, y)
+    local lx, ly = x.lvl or 999, y.lvl or 999   -- unknown level (quest log not loaded yet) sorts last
+    if lx ~= ly then return lx < ly end
+    return x.idx < y.idx
+end
+
+local function curateQuests()
+    local c = cfg()
+    local max = c.maxQuests or 0
+    if not (C_QuestLog and (max > 0 or c.hideGreyRed or c.sortByLevel)) then return end
+    local n = C_QuestLog.GetNumQuestWatches() or 0
+    if n == 0 then return end
+    local sup = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
+    if sup == 0 then sup = nil end
+    local pin = pins()
+
+    local current, items = {}, {}
+    for i = 1, n do   -- watch order = order in which the quests were tracked
+        local id = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
+        if id then
+            current[#current + 1] = id
+            items[#items + 1] = { id = id, idx = i, lvl = levelOf(id), seq = pin[id] }
         end
     end
-    if max == lastLimit then return end
-    lastLimit = max
-    ns:AfterCombat("tracker_limit", function()
-        for _, name in ipairs(LIMIT_MODULES) do
-            local t = _G[name]
-            if t and limitState[t] and t.MarkDirty then pcall(t.MarkDirty, t) end
+    -- pins of quests that are gone (turned in, abandoned) or not tracked any more
+    local tracked = {}
+    for _, id in ipairs(current) do tracked[id] = true end
+    for id in pairs(pin) do
+        if not tracked[id] then pin[id] = nil end
+    end
+
+    -- what stays tracked
+    local keep = {}
+    for _, it in ipairs(items) do
+        local hide = c.hideGreyRed and not it.seq and it.lvl and isGreyOrRed(it.lvl) and it.id ~= sup
+        if not hide then keep[#keep + 1] = it end
+    end
+    if max > 0 then
+        local S, P, U = nil, {}, {}
+        for _, it in ipairs(keep) do
+            if it.id == sup then S = it
+            elseif it.seq then P[#P + 1] = it
+            else U[#U + 1] = it end
         end
+        table.sort(P, function(x, y) return x.seq < y.seq end)   -- oldest pinned first
+        table.sort(U, byLevel)
+        local budget = max - (S and 1 or 0)
+        while #P > budget do
+            pin[P[1].id] = nil   -- too many turned on: the oldest goes (and is not pinned any more)
+            table.remove(P, 1)
+        end
+        keep = {}
+        if S then keep[#keep + 1] = S end
+        for _, it in ipairs(P) do keep[#keep + 1] = it end
+        for i = 1, math.min(#U, budget - #P) do keep[#keep + 1] = U[i] end
+    end
+    if c.sortByLevel then table.sort(keep, byLevel)
+    else table.sort(keep, function(x, y) return x.idx < y.idx end) end
+
+    local wanted, wantedSet = {}, {}
+    for i, it in ipairs(keep) do wanted[i] = it.id; wantedSet[it.id] = true end
+
+    -- first position where the tracked list differs from the wanted one: everything from there is redone
+    local tail = {}
+    for _, id in ipairs(current) do
+        if wantedSet[id] then tail[#tail + 1] = id end
+    end
+    local cut = 1
+    while cut <= #tail and tail[cut] == wanted[cut] do cut = cut + 1 end
+    local redo = {}
+    for i = cut, #tail do redo[tail[i]] = true end
+
+    local changed = false
+    trimming = true
+    for _, id in ipairs(current) do
+        if not wantedSet[id] or redo[id] then
+            pcall(C_QuestLog.RemoveQuestWatch, id)
+            changed = true
+        end
+    end
+    local manual = Enum and Enum.QuestWatchType and Enum.QuestWatchType.Manual
+    for i = cut, #wanted do
+        pcall(C_QuestLog.AddQuestWatch, wanted[i], manual)
+        changed = true
+    end
+    if changed and sup and wantedSet[sup] and C_SuperTrack.GetSuperTrackedQuestID() ~= sup then
+        pcall(C_SuperTrack.SetSuperTrackedQuestID, sup)
+    end
+    trimming = false
+    if changed then ignoreUntil = GetTime() + 1 end
+end
+
+local function requestTrim()
+    if trimQueued or trimming then return end
+    trimQueued = true
+    C_Timer.After(0.2, function()
+        trimQueued = false
+        ns:AfterCombat("tracker_trim", curateQuests)
     end)
+end
+
+-- the player tracking / untracking a quest by hand (quest log checkbox, shift-click): a manual watch is a pin
+-- (auto-tracking on accept is an Automatic watch)
+local function onWatchChanged(_, id, added)
+    if id and not trimming and GetTime() > ignoreUntil then
+        if not added then
+            pins()[id] = nil
+        else
+            local wt = C_QuestLog.GetQuestWatchType and C_QuestLog.GetQuestWatchType(id)
+            if Enum and Enum.QuestWatchType and wt == Enum.QuestWatchType.Manual then pinQuest(id) end
+        end
+    end
+    requestSkin()
+    requestTrim()
 end
 
 ----------------------------------------------------------------------
@@ -395,9 +474,13 @@ function TR:Start()
     end
     ns:On("EDIT_MODE_LAYOUTS_UPDATED", requestPlace)
     ns:On("PLAYER_ENTERING_WORLD", requestPlace)
-    ns:On("PLAYER_LEVEL_UP", requestPlace)
+    ns:On("PLAYER_LEVEL_UP", function() requestPlace(); requestTrim() end)
     ns:On("QUEST_LOG_UPDATE", requestSkin)
-    ns:On("QUEST_WATCH_LIST_CHANGED", requestSkin)
+    ns:On("QUEST_WATCH_LIST_CHANGED", onWatchChanged)
+    ns:On("QUEST_TURNED_IN", function(_, id) if id then pins()[id] = nil end end)
+    ns:On("QUEST_REMOVED", function(_, id) if id then pins()[id] = nil end end)
+    ns:On("QUEST_ACCEPTED", requestTrim)
+    requestTrim()
 end
 
 function TR:Apply()
@@ -407,6 +490,6 @@ function TR:Apply()
         return
     end
     if not started then self:Start() end
-    applyLimit()
+    requestTrim()
     place()
 end
