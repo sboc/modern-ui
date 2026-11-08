@@ -803,7 +803,7 @@ local function startFader()
         local low = c.fadeAlpha or 0.2
         local now = GetTime()
         local eb = _G.ChatFrame1EditBox
-        local typing = eb and eb.IsShown and eb:IsShown()
+        local typing = eb and eb.HasFocus and eb:HasFocus()   -- not IsShown: the edit box can stay open
         for _, p in ipairs({ panel, combatPanel }) do
             if p and p:IsShown() then
                 local active = delay <= 0 or p:IsMouseOver() or (p == panel and typing)
