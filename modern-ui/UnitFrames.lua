@@ -215,6 +215,31 @@ local function updateIcons(f)
     end
 end
 
+-- Hunter pet happiness face (Classic API; absent on retail, and nil for non-hunter pets).
+local HAPPY_TEX = "Interface\\PetPaperDollFrame\\UI-PetHappiness"
+local HAPPY_COORDS = {
+    { 0.375, 0.5625, 0, 0.359375 },    -- 1 unhappy
+    { 0.1875, 0.375, 0, 0.359375 },    -- 2 content
+    { 0, 0.1875, 0, 0.359375 },        -- 3 happy
+}
+local HAPPY_NAMES = { "Unhappy", "Content", "Happy" }
+local HAPPY_DAMAGE = { 75, 100, 125 }
+local function updateHappiness(f)
+    local ic = f.happiness
+    if not ic then return end
+    local h, dmg
+    local get = GetPetHappiness or (C_PetInfo and C_PetInfo.GetPetHappiness)
+    if get and f.cfg and f.cfg.showHappiness ~= false and UnitExists("pet") then
+        local ok, a, b = pcall(get)
+        if ok and type(a) == "table" then a, b = a.happiness, a.damagePercentage end
+        if ok and type(a) == "number" then h, dmg = a, b end
+    end
+    if not h or not HAPPY_COORDS[h] then ic:Hide() return end
+    ic:SetTexCoord(unpack(HAPPY_COORDS[h]))
+    ic.happiness, ic.damage = h, dmg or HAPPY_DAMAGE[h]
+    ic:Show()
+end
+
 -- Combo points (vanilla rules: they belong to the target).
 local function updateCombo(f)
     local pips = f.comboPips
@@ -450,6 +475,7 @@ local function updateAll(f)
     updateCast(f)
     updateSelection(f)
     updateCombo(f)
+    updateHappiness(f)
 end
 
 ----------------------------------------------------------------------
@@ -458,8 +484,9 @@ end
 local UNIT_EVENT_HANDLERS = {
     UNIT_HEALTH = updateHealth, UNIT_MAXHEALTH = updateHealth, UNIT_ABSORB_AMOUNT_CHANGED = updateHealth,
     UNIT_CONNECTION = updateAll, UNIT_FLAGS = updateHealth, UNIT_FACTION = updateAll,
-    UNIT_POWER_UPDATE = updatePower, UNIT_MAXPOWER = updatePower, UNIT_DISPLAYPOWER = updateAll,
+    UNIT_POWER_UPDATE = function(f) updatePower(f); updateHappiness(f) end, UNIT_MAXPOWER = updatePower, UNIT_DISPLAYPOWER = updateAll,
     UNIT_NAME_UPDATE = updateName, UNIT_LEVEL = updateName,
+    UNIT_HAPPINESS = updateHappiness,
     UNIT_AURA = updateAuras, UNIT_PET = updateAll, UNIT_TARGET = updateAll,
     UNIT_SPELLCAST_START = updateCast, UNIT_SPELLCAST_STOP = updateCast, UNIT_SPELLCAST_FAILED = updateCast,
     UNIT_SPELLCAST_INTERRUPTED = updateCast, UNIT_SPELLCAST_DELAYED = updateCast,
@@ -558,6 +585,14 @@ local function createUnitFrame(unit, name, cfgKey)
         f.status:Hide()
     end
 
+    if cfgKey == "pet" then
+        f.happiness = f.overlay:CreateTexture(nil, "OVERLAY")
+        f.happiness:SetTexture(HAPPY_TEX)
+        f.happiness:SetSize(18, 18)
+        f.happiness:SetPoint("CENTER", f, "BOTTOMRIGHT", -12, 0)
+        f.happiness:Hide()
+    end
+
     f.hl = f.overlay:CreateTexture(nil, "HIGHLIGHT")
     f.hl:SetAllPoints()
     f.hl:SetColorTexture(1, 1, 1, 0.07)
@@ -594,6 +629,10 @@ local function createUnitFrame(unit, name, cfgKey)
     f:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if not pcall(GameTooltip.SetUnit, GameTooltip, self.unit) then GameTooltip:Hide() return end
+        local hp = self.happiness
+        if hp and hp:IsShown() and hp.happiness then
+            GameTooltip:AddLine(string.format("Pet happiness: %s (%d%% damage)", HAPPY_NAMES[hp.happiness], hp.damage), 1, 0.82, 0)
+        end
         GameTooltip:Show()
     end)
     f:SetScript("OnLeave", function() GameTooltip:Hide() end)
