@@ -146,10 +146,15 @@ function UI.Slider(parent, label, min, max, step, get, set, fmt)
     fmt = fmt or function(v) return tostring(v) end
     local f = CreateFrame("Frame", nil, parent)
     f:SetHeight(40)
-    f.text = UI.Text(f, label)
-    f.text:SetPoint("TOPLEFT", 0, 0)
     f.valueText = UI.Text(f, "", "GameFontNormal", "RIGHT")
     f.valueText:SetPoint("TOPRIGHT", 0, 0)
+    f.valueText:SetWidth(64)
+    -- the label never runs under the value: it is cut short instead
+    f.text = UI.Text(f, label)
+    f.text:SetPoint("TOPLEFT", 0, 0)
+    f.text:SetPoint("RIGHT", f.valueText, "LEFT", -8, 0)
+    f.text:SetWordWrap(false)
+    f.text:SetMaxLines(1)
 
     local s = CreateFrame("Slider", nil, f)
     s:SetOrientation("HORIZONTAL")
@@ -586,7 +591,7 @@ function UI.BuildOptions(parent, options, width)
             h = 26
         elseif o.type == "range" then
             w = UI.Slider(container, o.label, o.min, o.max, o.step or 1, get, set, o.fmt)
-            w:SetWidth(math.min(width, 340))
+            w:SetWidth(math.min(width, 420))
             w:SetPoint("TOPLEFT", 0, -y)
             h = 46
         elseif o.type == "select" then

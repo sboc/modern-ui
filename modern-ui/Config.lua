@@ -331,9 +331,11 @@ local function trackerOptions()
         Range("tracker.bgAlpha", "Background opacity", 0, 1, 0.05, pct),
         Check("tracker.borders", "Draw a border around the panel"),
         Check("tracker.aprSkin", "Skin Azeroth Pilot Reloaded's guide panels the same way (turning it off needs a /reload)"),
+        Text("Max quests: the rest stay tracked, they are just not drawn. Height: when attached, how far the tracker reaches above the chat window."),
+        Range("tracker.maxQuests", "Max quests shown (0 = all)", 0, 25, 1),
         Range("tracker.fontSize", "Objective text size (0 = leave as is)", 0, 24, 1),
         Check("tracker.overrideHeight", "Override tracker height"),
-        Range("tracker.height", "Height (attached: how far it reaches above the chat window)", 150, 900, 10, px),
+        Range("tracker.height", "Height", 150, 900, 10, px),
     }
 end
 

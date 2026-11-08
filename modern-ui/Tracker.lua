@@ -142,6 +142,81 @@ local function hookTrackers()
 end
 
 ----------------------------------------------------------------------
+-- Quest limit
+----------------------------------------------------------------------
+-- Blizzard's quest modules build the list of quests to draw in BuildQuestWatchInfos: the list is cut to the
+-- configured count there (the quests stay tracked, they are just not drawn). The super tracked quest is always
+-- kept. Only hooked once a limit is set; 0 hands the full list back.
+local LIMIT_MODULES = { "CampaignQuestObjectiveTracker", "QuestObjectiveTracker" }   -- in drawing order
+local limitState = {}
+local lastLimit = 0
+
+local function limitMax()
+    local n = cfg().maxQuests or 0
+    return n > 0 and n or nil
+end
+
+local function limitInfos(tracker, infos)
+    local max = limitMax()
+    local state = limitState[tracker]
+    if not (max and type(infos) == "table") then
+        if state then state.shown = #(infos or {}) end
+        return infos
+    end
+    -- quests already drawn by the modules before this one share the same budget
+    local used = 0
+    for _, name in ipairs(LIMIT_MODULES) do
+        local t = _G[name]
+        if t == tracker then break end
+        local st = t and limitState[t]
+        used = used + (st and st.shown or 0)
+    end
+    local budget = math.max(0, max - used)
+    if #infos <= budget then state.shown = #infos return infos end
+    local keep, n = {}, 0
+    local sup = budget > 0 and C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
+    if sup and sup ~= 0 then
+        for i, info in ipairs(infos) do
+            if info.quest and info.quest:GetID() == sup then keep[i] = true; n = 1; break end
+        end
+    end
+    for i = 1, #infos do
+        if n >= budget then break end
+        if not keep[i] then keep[i] = true; n = n + 1 end
+    end
+    local out = {}
+    for i, info in ipairs(infos) do
+        if keep[i] then out[#out + 1] = info end
+    end
+    state.shown = #out
+    return out
+end
+
+local function applyLimit()
+    local max = limitMax() or 0
+    for _, name in ipairs(LIMIT_MODULES) do
+        local t = _G[name]
+        if t and type(t.BuildQuestWatchInfos) == "function" and not limitState[t] and max > 0 then
+            local state = { original = t.BuildQuestWatchInfos, shown = 0 }
+            limitState[t] = state
+            t.BuildQuestWatchInfos = function(self, ...)
+                local infos = state.original(self, ...)
+                local ok, out = pcall(limitInfos, self, infos)
+                return ok and out or infos
+            end
+        end
+    end
+    if max == lastLimit then return end
+    lastLimit = max
+    ns:AfterCombat("tracker_limit", function()
+        for _, name in ipairs(LIMIT_MODULES) do
+            local t = _G[name]
+            if t and limitState[t] and t.MarkDirty then pcall(t.MarkDirty, t) end
+        end
+    end)
+end
+
+----------------------------------------------------------------------
 -- Position
 ----------------------------------------------------------------------
 -- where the tracker hangs: attached, its TOP edge sits a fixed distance (the Height option, clamped to the
@@ -332,5 +407,6 @@ function TR:Apply()
         return
     end
     if not started then self:Start() end
+    applyLimit()
     place()
 end
