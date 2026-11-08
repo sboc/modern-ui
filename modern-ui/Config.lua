@@ -327,12 +327,13 @@ local function trackerOptions()
         Range("tracker.alpha", "Opacity", 0.1, 1, 0.05, pct),
         Check("tracker.skin", "Skin headers (accent text, no Blizzard header art)"),
         Check("tracker.background", "Draw a background panel behind the quests"),
-        Check("tracker.attach", "Attach to the top right of the right chat window (grows upwards)"),
+        Check("tracker.attach", "Attach to the top right of the right chat window"),
         Range("tracker.bgAlpha", "Background opacity", 0, 1, 0.05, pct),
         Check("tracker.borders", "Draw a border around the panel"),
+        Check("tracker.aprSkin", "Skin Azeroth Pilot Reloaded's guide panels the same way (turning it off needs a /reload)"),
         Range("tracker.fontSize", "Objective text size (0 = leave as is)", 0, 24, 1),
         Check("tracker.overrideHeight", "Override tracker height"),
-        Range("tracker.height", "Height", 150, 900, 10, px),
+        Range("tracker.height", "Height (attached: how far it reaches above the chat window)", 150, 900, 10, px),
     }
 end
 

@@ -5,7 +5,7 @@
 ## Version: 1.0.0
 ## IconTexture: Interface\AddOns\modern-ui\media\icon.tga
 ## SavedVariables: ModernUIDB, MolUIDB
-## OptionalDeps: LibSharedMedia-3.0
+## OptionalDeps: LibSharedMedia-3.0, APR
 ## Category: Interface Enhancements
 
 Core.lua
@@ -23,6 +23,7 @@ Skins.lua
 Vendor.lua
 Minimap.lua
 Tracker.lua
+APR.lua
 DataBars.lua
 Chat.lua
 Tooltip.lua

@@ -27,7 +27,6 @@ local HEADER_ART = { "Background", "Line", "LineSheen", "LineGlow", "Divider", "
 local holder, panel
 local started = false
 local requestPlace
-local updateBottomShift
 local placing = false   -- our own re-anchoring must not trigger the re-anchor hooks
 local placeQueued, skinQueued = false, false
 local hooked = {}
@@ -116,7 +115,7 @@ local function skinAll()
         eachTracker(function(t) skinHeader(t.Header) end)
     end
     fitPanel()
-    updateBottomShift()
+    if ns.APRSkin and ns.APRSkin.SyncWidth then pcall(ns.APRSkin.SyncWidth, ns.APRSkin) end
 end
 
 local function requestSkin()
@@ -145,46 +144,66 @@ end
 ----------------------------------------------------------------------
 -- Position
 ----------------------------------------------------------------------
--- The tracker frame is taller than its content (Blizzard sizes it to the maximum) and lays the content
--- out from the TOP. Attached below a chat window, the empty part would sit between content and window:
--- the frame is moved down by that empty height so the content's bottom edge meets the window.
-local bottomShift = 0
-
-function updateBottomShift()
-    local c = cfg()
-    local f = _G.ObjectiveTrackerFrame
-    local chat = ns.Chat
-    local want = 0
-    if f and c.attach and chat and chat.GetRightPanel and chat:GetRightPanel() then
-        local ok = pcall(function()
-            local top = f:GetTop()
-            local bottom
-            eachTracker(function(t)
-                if t:IsShown() and (t:GetHeight() or 0) > 1 then
-                    local b = t:GetBottom()
-                    if b and (not bottom or b < bottom) then bottom = b end
-                end
-            end)
-            if top and bottom and top > bottom then
-                want = math.max(0, math.floor((f:GetHeight() or 0) - (top - bottom) - 6))
-            end
-        end)
-        if not ok then want = 0 end
-    end
-    if math.abs(want - bottomShift) > 2 then
-        bottomShift = want
-        requestPlace()
-    end
-end
-
--- where the tracker hangs: the top right of the right chat window (growing upwards) when attached,
--- otherwise its own mover box
+-- where the tracker hangs: attached, its TOP edge sits a fixed distance (the Height option, clamped to the
+-- screen) above the top right of the right chat window and the content grows down from there. The frame's
+-- own height is Blizzard's business and changes with the layout (minimap, combat, ...): anchoring by the
+-- bottom would make the content move with it. Otherwise it hangs on its own mover box.
 local function anchorTarget()
     local chat = ns.Chat
-    local panel = cfg().attach and chat and chat.GetRightPanel and chat:GetRightPanel()
-    -- (x = a little gap to the screen edge)
-    if panel then return panel, "BOTTOMRIGHT", "TOPRIGHT", 4 - bottomShift, -10 end
+    local c = cfg()
+    local panel = c.attach and chat and chat.GetRightPanel and chat:GetRightPanel()
+    if panel then
+        local scale = c.scale * ns.db.general.scale
+        local rise = c.height
+        local ui, pTop, pScale = UIParent:GetTop(), panel:GetTop(), panel:GetEffectiveScale()
+        if ui and pTop and pScale and scale > 0 then
+            local free = (ui - pTop * pScale / UIParent:GetEffectiveScale() - 20) / scale
+            rise = math.max(100, math.min(rise, math.floor(free)))
+        end
+        -- (-10 x = a little gap to the screen edge)
+        return panel, "TOPRIGHT", "TOPRIGHT", -10, rise
+    end
     return holder, "TOPRIGHT", "TOPRIGHT", 0, 0
+end
+
+-- Azeroth Pilot Reloaded's "attach to quest log" (guide ABOVE the tracker) takes the tracker frame over: it
+-- re-anchors it to UIParent just below its own panels and shortens it. While it owns the frame we must not
+-- put it back (the two would fight forever = flicker); we only step in when OUR wanted spot changed.
+local lastWanted
+
+local function aprState(f)
+    local qt = _G.APR and _G.APR.QuestTracker
+    local state = qt and qt.displacement
+    if state and state.frame == f then return state end
+end
+
+-- APR owns the frame only while it still sits exactly where APR put it (Blizzard or Edit Mode may have
+-- moved it since, e.g. during combat: then the frame is ours again)
+local function aprOwns(f)
+    local state = aprState(f)
+    if not state then return false end
+    local applied = state.applied
+    if type(applied) ~= "table" then return true end
+    local ok, same = pcall(function()
+        if f:GetNumPoints() ~= #applied then return false end
+        for i, p in ipairs(applied) do
+            local pt, rel, rp, x, y = f:GetPoint(i)
+            if pt ~= p[1] or rel ~= p[2] or rp ~= p[3]
+                or math.abs((x or 0) - p[4]) > 0.01 or math.abs((y or 0) - p[5]) > 0.01 then
+                return false
+            end
+        end
+        return true
+    end)
+    return not ok or same
+end
+
+local function wantedKey(rel, point, relPoint, x, y)
+    local top, right = 0, 0
+    if rel and rel.GetTop then
+        top, right = math.floor((rel:GetTop() or 0) + 0.5), math.floor((rel:GetRight() or 0) + 0.5)
+    end
+    return table.concat({ tostring(rel), point, relPoint, x, y, top, right }, "|")
 end
 
 local function place()
@@ -192,14 +211,42 @@ local function place()
     if not f or not holder or not cfg().enabled then return end
     ns:AfterCombat("tracker_place", function()
         local c = cfg()
-        ns.SetScale(f, c.scale * ns.db.general.scale)
-        f:SetAlpha(c.alpha)
-        placing = true
-        ns.ClearPoints(f)
-        local rel, point, relPoint, y, x = anchorTarget()
-        ns.SetPoint(f, point, rel, relPoint, x, y)
-        placing = false
-        if c.overrideHeight then pcall(f.SetHeight, f, c.height) end
+        -- every write from addon code taints the Blizzard frame's state, and its layout code reads that
+        -- back (in combat: secret auras -> "Auras cannot be accessed when secret while tainted"), so
+        -- only write what actually changed
+        local wantScale = c.scale * ns.db.general.scale
+        if math.abs((f:GetScale() or 0) - wantScale) > 0.001 then ns.SetScale(f, wantScale) end
+        if math.abs((f:GetAlpha() or 0) - c.alpha) > 0.001 then f:SetAlpha(c.alpha) end
+        local rel, point, relPoint, x, y = anchorTarget()
+        local key = wantedKey(rel, point, relPoint, x, y)
+        local state = aprState(f)
+        local owned = state ~= nil and aprOwns(f)
+        local released = false
+        if state and (not owned or key ~= lastWanted) then
+            -- our spot moved, or something else moved the frame away from APR's placement: let APR
+            -- hand the frame back, then it re-attaches from our spot
+            pcall(_G.APR.QuestTracker.Release, _G.APR.QuestTracker)
+            owned, released = false, true
+        end
+        if not owned then
+            placing = true
+            local p, r, rp, px, py = f:GetPoint(1)
+            local same = f:GetNumPoints() == 1 and p == point and r == rel and rp == relPoint
+                and math.abs((px or 0) - x) < 0.5 and math.abs((py or 0) - y) < 0.5
+            if not same then
+                ns.ClearPoints(f)
+                ns.SetPoint(f, point, rel, relPoint, x, y)
+            end
+            placing = false
+            if c.overrideHeight then pcall(f.SetHeight, f, c.height) end
+            lastWanted = key
+            if released then
+                C_Timer.After(0.2, function()
+                    local cs = _G.APR and _G.APR.currentStep
+                    if cs and cs.RefreshCurrentStepFrameAnchor then pcall(cs.RefreshCurrentStepFrameAnchor, cs) end
+                end)
+            end
+        end
         holder:SetScale(c.scale * ns.db.general.scale)
         holder:SetSize(250, c.overrideHeight and c.height or 300)
         ns.Mover:Position("tracker")
@@ -215,6 +262,17 @@ function requestPlace()
 end
 
 function TR:RequestPlace() requestPlace() end
+
+-- width of the tracker as drawn (its skin panel included), in UIParent units
+function TR:GetVisualWidth()
+    local f = _G.ObjectiveTrackerFrame
+    local c = ns.db and cfg()
+    if not (f and c) then return end
+    local w, fs, ps = f:GetWidth(), f:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if not (w and fs and ps and ps > 0) then return end
+    if c.skin and c.background then w = w + 16 end
+    return math.floor(w * fs / ps * 2 + 0.5) / 2
+end
 
 function TR:Init()
     if not ns.db.tracker.enabled then return end
@@ -256,6 +314,7 @@ function TR:Start()
             acc = 0
             if not (started and ns.db and cfg().enabled and holder) then return end
             local ok, _, rel = pcall(f.GetPoint, f, 1)
+            if aprOwns(f) then return end
             if not ok or rel ~= (anchorTarget()) then requestPlace() end
         end)
     end

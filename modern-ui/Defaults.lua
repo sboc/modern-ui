@@ -107,6 +107,7 @@ ns.defaults = {
     tracker = {
         enabled = true, scale = 1, alpha = 1, skin = true, background = true, bgAlpha = 0.55, attach = true,
         borders = true, fontSize = 0, overrideHeight = false, height = 500,
+        aprSkin = true,   -- also skin Azeroth Pilot Reloaded's guide panels like the tracker (when installed)
     },
     databars = {
         hideBlizzard = true,
