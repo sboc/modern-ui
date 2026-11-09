@@ -292,6 +292,28 @@ local function updateName(f)
     if f.friendly then f.name:SetTextColor(unitColor(unit, true)) else f.name:SetTextColor(1, 1, 1) end
 end
 
+-- Quest-style con colours by level difference to the player, computed here (the Blizzard helpers differ between clients:
+-- scaling-aware vs plain). red 5+, orange 3-4, yellow -2..2, green down to the green range, grey below.
+local function conColor(level)
+    local player = (UnitEffectiveLevel and UnitEffectiveLevel("player")) or UnitLevel("player") or level
+    local diff = level - player
+    if diff >= 5 then return 1, 0.1, 0.1 end
+    if diff >= 3 then return 1, 0.5, 0.25 end
+    if diff >= -2 then return 1, 1, 0 end
+    local range
+    if GetQuestGreenRange then
+        local ok, v = pcall(GetQuestGreenRange, "player")
+        if ok and type(v) == "number" and not secret(v) then range = v end
+    end
+    if not range then
+        -- classic mob grey level: <=5 none, 6-49 level - floor(level/10) - 5, 50-59 level - 9, 60+ level - 12
+        local grey = player <= 5 and 0 or player <= 49 and (player - math.floor(player / 10) - 5) or player <= 59 and (player - 9) or (player - 12)
+        range = player - grey
+    end
+    if -diff <= range then return 0.25, 0.75, 0.25 end
+    return 0.5, 0.5, 0.5
+end
+
 -- level in front of the name as "[60] ", brackets and number in the difficulty colour (grey / green / yellow / orange / red)
 local function updateLevel(f)
     local unit = f.unit
@@ -304,13 +326,7 @@ local function updateLevel(f)
             if level <= 0 then
                 r, g, b, text = 1, 0.1, 0.1, "??"
             else
-                local color
-                if GetCreatureDifficultyColor then
-                    color = GetCreatureDifficultyColor(level)
-                elseif GetQuestDifficultyColor then
-                    color = GetQuestDifficultyColor(level)
-                end
-                if color then r, g, b = color.r, color.g, color.b end
+                r, g, b = conColor(level)
             end
             f.levelPrefix = string.format("|cff%02x%02x%02x[%s]|r ", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5),
                 math.floor(b * 255 + 0.5), text)
