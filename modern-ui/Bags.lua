@@ -260,9 +260,26 @@ local function requestRestyle()
     end)
 end
 
+-- Bag windows sit on DIALOG; the loot window (opening clams, caches, ...) defaults to a lower strata and would
+-- open behind them. Lift it to the same strata and put it on top whenever it shows.
+local lootLifted = false
+local function liftLootFrame()
+    local lf = _G.LootFrame
+    if lootLifted or type(lf) ~= "table" or not lf.HookScript then return end
+    lootLifted = true
+    local function lift(self)
+        if not (ns.db and cfg().enabled) then return end
+        if self:GetFrameStrata() ~= "DIALOG" then pcall(self.SetFrameStrata, self, "DIALOG") end
+        pcall(self.Raise, self)
+    end
+    pcall(lf.HookScript, lf, "OnShow", lift)
+    if lf:IsShown() then lift(lf) end
+end
+
 function BW:Start()
     if started then return end
     started = true
+    liftLootFrame()
     for _, e in ipairs({ "BAG_UPDATE_DELAYED", "BAG_UPDATE", "ITEM_LOCK_CHANGED", "INVENTORY_SEARCH_UPDATE", "BAG_NEW_ITEMS_UPDATED" }) do
         ns:On(e, requestRestyle)
     end
