@@ -161,6 +161,7 @@ ns.defaults = {
     consumables = {
         enabled = true,    -- keep the Food / Water / Health Potion macros pointed at the best item in the bags
         announce = true,   -- print when the pick changes
+        auto = true,       -- derive the food / water stat order from class and spec (manual lists apply when off or undetected)
         food  = { enabled = true, priority = ns.CopyTable(ns.Consumables.DEFAULT_PRIORITY.food),  disabled = {} },
         water = { enabled = true, priority = ns.CopyTable(ns.Consumables.DEFAULT_PRIORITY.water), disabled = {} },
         healthpot = { enabled = true },

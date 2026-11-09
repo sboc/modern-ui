@@ -245,6 +245,12 @@ local function skinOptions()
     return o
 end
 
+local function consumableDetectedText()
+    local label = ns.Consumables:DetectedLabel()
+    if not ns.db.consumables.auto then return "Auto detection is off: the lists below are used." end
+    return label and ("Detected: " .. label .. ".") or "Nothing detected for this character: the lists below are used."
+end
+
 local function consumableOptions()
     local K = ns.Consumables
     local labels = {}
@@ -256,6 +262,10 @@ local function consumableOptions()
         Text("Creates global macros (shared by all characters) and points them at the best food / drink / health potion in your bags. Drag them to an action bar once; they update themselves, using whichever character is logged in. Updates made in combat wait until combat ends. Items above your level are ignored."),
         Check("consumables.announce", "Print in chat when the pick changes"),
         Button("Update now", function() ns.Consumables:Update() end),
+        Header("Preferred food"),
+        Check("consumables.auto", "Detect the preferred food and water from my class and spec"),
+        Text("Picks the stat order that suits your role (healer, caster, strength / agility melee or tank) and follows spec changes. Falls back to the lists below when your spec cannot be detected or this is off."),
+        Text(consumableDetectedText()),
     }
     for _, kind in ipairs({ "food", "water" }) do
         local title = kind == "food" and "Food" or "Water"

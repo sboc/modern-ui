@@ -43,6 +43,89 @@ K.DEFAULT_PRIORITY = {
 local function cfg() return ns.db.consumables end
 
 ----------------------------------------------------------------------
+-- Class / spec detection: picks the stat order that suits the character when "auto" is on
+----------------------------------------------------------------------
+-- archetype -> { label, food = head of the order, water = head of the order }; categories not listed follow in default order
+local ARCHETYPES = {
+    healer     = { label = "Healer",
+                   food  = { "HEALING", "SPELL_POWER", "INTELLECT", "SPIRIT", "MP5", "STAMINA" },
+                   water = { "INTELLECT", "SPIRIT", "HEALING", "SPELL_POWER", "MP5", "STAMINA" } },
+    caster     = { label = "Caster",
+                   food  = { "SPELL_POWER", "INTELLECT", "SPIRIT", "MP5", "STAMINA" },
+                   water = { "INTELLECT", "SPIRIT", "SPELL_POWER", "MP5", "STAMINA" } },
+    melee_str  = { label = "Strength melee",
+                   food  = { "ATTACK_POWER", "STRENGTH", "STAMINA" },
+                   water = { "INTELLECT", "SPIRIT", "STAMINA" } },
+    melee_agi  = { label = "Agility melee / ranged",
+                   food  = { "ATTACK_POWER", "AGILITY", "STAMINA" },
+                   water = { "INTELLECT", "SPIRIT", "STAMINA" } },
+    tank_str   = { label = "Strength tank",
+                   food  = { "STRENGTH", "STAMINA", "ATTACK_POWER" },
+                   water = { "INTELLECT", "SPIRIT", "STAMINA" } },
+    tank_agi   = { label = "Agility tank",
+                   food  = { "AGILITY", "STAMINA", "ATTACK_POWER" },
+                   water = { "INTELLECT", "SPIRIT", "STAMINA" } },
+}
+
+-- used when the client reports no usable spec; classes that can be anything are left out on purpose
+local CLASS_ARCHETYPE = {
+    WARRIOR = "melee_str", DEATHKNIGHT = "melee_str", ROGUE = "melee_agi", HUNTER = "melee_agi",
+    DEMONHUNTER = "melee_agi", MAGE = "caster", WARLOCK = "caster", PRIEST = "healer",
+}
+
+local PRIMARY_STAT = { [1] = "str", [2] = "agi", [4] = "int" }   -- LE_UNIT_STAT_*: 1 strength, 2 agility, 3 stamina, 4 intellect
+
+local function specArchetype()
+    local I = C_SpecializationInfo
+    local getSpec = (I and I.GetSpecialization) or GetSpecialization
+    local getInfo = (I and I.GetSpecializationInfo) or GetSpecializationInfo
+    if not getSpec or not getInfo then return end
+    local okS, idx = pcall(getSpec)
+    if not okS or type(idx) ~= "number" or idx < 1 then return end
+    local ok, _, _, _, _, role, primary = pcall(getInfo, idx)
+    if not ok or type(role) ~= "string" then return end
+    local stat = PRIMARY_STAT[primary]
+    if role == "HEALER" then return "healer" end
+    if role == "TANK" then
+        if stat == "agi" then return "tank_agi" end
+        return "tank_str"
+    end
+    if role == "DAMAGER" then
+        if stat == "int" then return "caster" end
+        if stat == "agi" then return "melee_agi" end
+        if stat == "str" then return "melee_str" end
+    end
+end
+
+-- archetype key or nil when nothing can be told
+function K:DetectArchetype()
+    local key = specArchetype()
+    if key then return key end
+    local _, class = UnitClass("player")
+    return class and CLASS_ARCHETYPE[class] or nil
+end
+
+-- readable result for the settings page
+function K:DetectedLabel()
+    local key = K:DetectArchetype()
+    return key and ARCHETYPES[key].label or nil
+end
+
+-- full ordered category list for the detected archetype, or nil
+local function autoPriority(kind)
+    local arch = ARCHETYPES[K:DetectArchetype() or ""]
+    if not arch then return end
+    local out, seen = {}, {}
+    for _, key in ipairs(arch[kind]) do
+        if catByKey[key] and not seen[key] then seen[key] = true; out[#out + 1] = key end
+    end
+    for _, key in ipairs(K.DEFAULT_PRIORITY[kind]) do
+        if not seen[key] then seen[key] = true; out[#out + 1] = key end
+    end
+    return out
+end
+
+----------------------------------------------------------------------
 -- Tooltip text (cached per item id)
 ----------------------------------------------------------------------
 local textCache = {}
@@ -189,8 +272,13 @@ end
 local function buildRank(kind)
     local c = cfg()[kind]
     local rank, n = {}, 0
-    for _, key in ipairs(c.priority) do
-        if catByKey[key] and not c.disabled[key] then
+    local list, off = c.priority, c.disabled
+    if cfg().auto then
+        local auto = autoPriority(kind)
+        if auto then list, off = auto, {} end
+    end
+    for _, key in ipairs(list) do
+        if catByKey[key] and not off[key] then
             n = n + 1
             rank[key] = n
         end
@@ -329,6 +417,7 @@ end
 -- its parsed numbers and tooltip text, to see what the parser makes of an item.
 function K:Debug(verbose)
     local best = K:Scan()
+    ns:Print("auto priority: " .. (cfg().auto and ("on, " .. (K:DetectedLabel() or "nothing detected, using manual order")) or "off"))
     for _, kind in ipairs(KINDS) do
         local p = best[kind]
         ns:Print(string.format("%s: %s", kind, p and p.link or "none"))
@@ -369,6 +458,10 @@ end
 function K:Init()
     ns:On("BAG_UPDATE_DELAYED", function() K:Queue(0.5) end)
     ns:On("PLAYER_LEVEL_UP", function() K:Queue(1) end)
+    ns:On("PLAYER_SPECIALIZATION_CHANGED", function(_, unit)
+        if (unit == nil or unit == "player") and ns.db and cfg().auto then K:Queue(1) end
+    end)
+    ns:On("ACTIVE_TALENT_GROUP_CHANGED", function() if ns.db and cfg().auto then K:Queue(1) end end)
     ns:On("PLAYER_ENTERING_WORLD", function()
         K:Queue(2)
         -- bag / item data can still be arriving right after login: one more pass later
