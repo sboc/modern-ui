@@ -157,7 +157,7 @@ ns.defaults = {
                    movable = true, positions = {} },
     custombags = { enabled = false, columns = 10, slotSize = 36, showNew = true,
                    sections = {}, pins = {}, collapsed = {} },   -- own sections, itemID -> section key, collapsed sections
-    vendor = { autoSellJunk = true, summary = true, protected = {} },   -- protected: itemID -> true, selling asks first
+    vendor = { autoSellJunk = true, summary = true, protected = {}, trashMax = 100 },   -- protected: itemID -> true, selling asks first; trashMax: Trash button deletes gray stacks worth less (copper)
     consumables = {
         enabled = true,    -- keep the Food / Water / Health Potion macros pointed at the best item in the bags
         announce = true,   -- print when the pick changes

@@ -658,6 +658,10 @@ local function build()
         end)
     end)
     sort:SetPoint("RIGHT", close, "LEFT", -4, 0)
+    if ns.Vendor and ns.Vendor.CreateTrashButton then
+        local trash = ns.Vendor:CreateTrashButton(frame, 46, 20)
+        trash:SetPoint("RIGHT", sort, "LEFT", -4, 0)
+    end
 
     searchBox = CreateFrame("EditBox", nil, frame)
     searchBox:SetFontObject("GameFontHighlight")

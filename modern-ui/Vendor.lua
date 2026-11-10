@@ -196,6 +196,72 @@ function V:SellJunk()
     step()
 end
 
+-- Trash button: deletes gray items worth less than a set price (value of the whole stack), for when no
+-- merchant is around. Protected items are skipped. Asks first, since deleting cannot be undone.
+local function trashList(limit)
+    local list, total = {}, 0
+    local poor = (Enum and Enum.ItemQuality and Enum.ItemQuality.Poor) or 0
+    for bag = 0, lastBag do
+        for slot = 1, numSlots(bag) do
+            local info = slotInfo(bag, slot)
+            if info and info.quality == poor and not info.isLocked
+               and not isProtected(info.itemID or itemIDFromLink(info.hyperlink)) then
+                local value = info.hasNoValue and 0 or sellPrice(info) * (info.stackCount or 1)
+                if value < limit then
+                    list[#list + 1] = { bag = bag, slot = slot, value = value }
+                    total = total + value
+                end
+            end
+        end
+    end
+    return list, total
+end
+
+local function deleteSlot(bag, slot)
+    local pickup = (C_Container and C_Container.PickupContainerItem) or PickupContainerItem
+    if not pickup or not DeleteCursorItem then return false end
+    pcall(pickup, bag, slot)
+    if not (CursorHasItem and CursorHasItem()) then return false end
+    DeleteCursorItem()
+    return true
+end
+
+function V:ClearTrash()
+    if InCombatLockdown and InCombatLockdown() then ns:Print("Cannot clear trash in combat."); return end
+    if CursorHasItem and CursorHasItem() then ns:Print("Drop the item on your cursor first."); return end
+    local limit = cfg().trashMax or 0
+    local list, total = trashList(limit)
+    if #list == 0 then
+        ns:Print(limit > 0 and ("No gray items worth less than " .. money(limit) .. ".")
+                 or "Set a price limit first (Config > Bag Windows > Vendor).")
+        return
+    end
+    ns.UI.Confirm(string.format("Delete %d gray item stack%s worth less than %s?\n(%s in total, cannot be undone)",
+        #list, #list == 1 and "" or "s", money(limit), money(total)), function()
+        local count = 0
+        -- re-collect: bags may have changed while the dialog was open
+        for _, it in ipairs((trashList(limit))) do
+            if deleteSlot(it.bag, it.slot) then count = count + 1 end
+        end
+        ns:Print(string.format("Deleted %d gray item stack%s.", count, count == 1 and "" or "s"))
+    end)
+end
+
+-- shared by the grouped bag window and the Blizzard backpack
+function V:CreateTrashButton(parent, w, h)
+    local b = ns.UI.Button(parent, "Trash", w or 46, h or 20, function() V:ClearTrash() end)
+    b:HookScript("OnEnter", function(self)
+        local limit = ns.db and cfg().trashMax or 0
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Delete gray items", 1, 1, 1)
+        GameTooltip:AddLine("Worth less than " .. money(limit) .. " per stack.", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Change the limit in Config > Bag Windows.", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
 -- Alt+click an item in a bag toggles its protection
 local function bagButtonUnderMouse()
     local f

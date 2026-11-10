@@ -233,6 +233,12 @@ function skinFrame(frame)
     bg.borders = UI.AddBorder(bg, 1, 0, 0, 0, 1, "BORDER")
     frame.molBG = bg
     makeMovable(frame)
+    -- Trash button under the backpack window (combined bags, or the first separate bag window)
+    local name = frame:GetName()
+    if (name == "ContainerFrameCombinedBags" or name == "ContainerFrame1") and ns.Vendor and ns.Vendor.CreateTrashButton then
+        local trash = ns.Vendor:CreateTrashButton(frame, 56, 20)
+        trash:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", 0, -2)
+    end
     pcall(frame.HookScript, frame, "OnShow", function(self) if cfg().enabled then restyleFrame(self) end end)
     for _, m in ipairs({ "UpdateItems", "Update", "UpdateName" }) do
         if type(frame[m]) == "function" then
