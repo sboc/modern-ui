@@ -53,6 +53,26 @@ local function numSlots(bag)
     return fn and fn(bag) or 0
 end
 
+-- what an empty slot in this bag accepts: normal, quiver / ammo pouch, soul bag, reagent bag, or a profession bag
+local FAMILY_LABEL = {
+    [1] = "Quiver", [2] = "Ammo pouch", [4] = "Soul bag", [8] = "Leatherworking bag", [16] = "Inscription bag",
+    [32] = "Herb bag", [64] = "Enchanting bag", [128] = "Engineering bag", [512] = "Gem bag", [1024] = "Mining bag",
+    [2048] = "Unused", [4096] = "Vanity pets bag",
+}
+
+local function bagKind(bag)
+    local reagent = Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag or 5
+    if (NUM_REAGENTBAG_SLOTS or 0) > 0 and bag == reagent then return "reagent", "Reagent bag", 1000 end
+    local fn = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
+    if fn then
+        local ok, _, family = pcall(fn, bag)
+        if ok and type(family) == "number" and not isSecret(family) and family ~= 0 then
+            return "f" .. family, FAMILY_LABEL[family] or "Special bag", family
+        end
+    end
+    return "bag", "Bag", 0
+end
+
 local function itemInfo(bag, slot)
     local fn = C_Container and C_Container.GetContainerItemInfo
     if not fn then return end
@@ -218,6 +238,34 @@ local function updateButton(btn, e)
     btn:SetAlpha(dim and 0.25 or 1)
 end
 
+-- tooltip for the one visible empty slot of a bag kind: says which kind of slot it is
+local function showFreeTip(btn)
+    pcall(function()
+        GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+        GameTooltip:SetText(btn.molFreeLabel, 1, 1, 1)
+        GameTooltip:AddLine(btn.molFreeCount .. " empty", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+end
+
+-- extra tooltip line on items in the grouped window: which bag holds it
+local function bagLabel(bag)
+    local fn = (C_Container and C_Container.GetBagName) or GetBagName
+    local ok, name = pcall(fn, bag)
+    if not ok or type(name) ~= "string" or isSecret(name) or name == "" then name = nil end
+    if bag == 0 then return name or "Backpack" end
+    return "Bag " .. bag .. (name and (": " .. name) or "")
+end
+
+if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
+    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tip)
+        if tip ~= GameTooltip then return end
+        local owner = tip:GetOwner()
+        if not (owner and owner.molBag) or owner.molFreeLabel then return end
+        pcall(function() tip:AddLine("In " .. bagLabel(owner.molBag), 0.6, 0.8, 1) end)
+    end)
+end
+
 local function createButton(bag, slot)
     if InCombatLockdown() then return end
     local name = "ModernUIBagItem" .. bag .. "_" .. slot
@@ -236,10 +284,17 @@ local function createButton(bag, slot)
     btn:SetID(slot)
     btn.molBag, btn.molSlot = bag, slot
     if BW and BW.StyleSlot then pcall(BW.StyleSlot, btn) end
+    -- Blizzard's per-frame tooltip refresh clears the tooltip of an empty slot, so put ours back while hovered
+    pcall(btn.HookScript, btn, "OnUpdate", function(self)
+        if self.molFreeLabel and self:IsMouseOver() and not (GameTooltip:IsShown() and GameTooltip:GetOwner() == self and GameTooltip:NumLines() > 0) then
+            showFreeTip(self)
+        end
+    end)
     pcall(btn.HookScript, btn, "OnEnter", function(self)
         -- Blizzard's own handler fills the tooltip; if it did not, do it here
         C_Timer.After(0, function()
             if not self:IsMouseOver() then return end
+            if self.molFreeLabel then showFreeTip(self) return end
             if not (GameTooltip:IsShown() and GameTooltip:GetOwner() == self) then
                 pcall(function()
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -385,8 +440,13 @@ local function layout(groups, freeGroup)
         if not collapsed then place(g.items) end
     end
     if freeGroup then
-        header("FREE", "Empty slots", freeGroup.total, "free")
-        place(freeGroup.items)
+        local tiles, sum = {}, 0
+        for _, fg in ipairs(freeGroup) do
+            tiles[#tiles + 1] = fg.items[1]
+            sum = sum + fg.total
+        end
+        header("FREE", "Empty slots", sum, "free")
+        place(tiles)
     end
     if dragging then
         header("NEW", "+ New section (drop an item here)", nil, "new")
@@ -428,14 +488,21 @@ local function buildGroups(entries, empties)
     for _, n in ipairs(cfg().sections) do add(customKey(n)) end
     for _, s in ipairs(SECTIONS) do add(s.key) end
 
-    -- one real empty slot stays visible so items can be dropped into the bags; it shows how many are free.
-    -- Regular bags first (a reagent bag only takes reagents).
-    local pick
+    -- one real empty slot per bag kind stays visible so items can be dropped into the bags; it shows how many are free.
+    -- Kinds: normal bags, quiver / ammo, reagent bag, profession bags. Regular bags first (they take any item).
+    local kinds, list = {}, {}
     for _, e in ipairs(empties) do
-        if e.bag <= (NUM_BAG_SLOTS or 4) then pick = e break end
+        local kind, label, order = bagKind(e.bag)
+        local k = kinds[kind]
+        if not k then
+            k = { kind = kind, label = label, order = order, items = { e }, total = 0 }
+            kinds[kind] = k
+            list[#list + 1] = k
+        end
+        k.total = k.total + 1
     end
-    pick = pick or empties[1]
-    local free = pick and { items = { pick }, total = #empties } or nil
+    table.sort(list, function(a, b) return a.order < b.order end)
+    local free = #list > 0 and list or nil
     return groups, free
 end
 
@@ -448,7 +515,9 @@ local function signature(groups, free)
             for _, e in ipairs(g.items) do parts[#parts + 1] = e.bag .. "," .. e.slot end
         end
     end
-    if free then parts[#parts + 1] = "f" .. free.items[1].bag .. "," .. free.items[1].slot end
+    if free then
+        for _, fg in ipairs(free) do parts[#parts + 1] = "f" .. fg.kind .. fg.items[1].bag .. "," .. fg.items[1].slot end
+    end
     return table.concat(parts, " ")
 end
 
@@ -489,13 +558,24 @@ function CB:Refresh()
 
     for _, e in ipairs(entries) do
         local btn = buttons[e.bag] and buttons[e.bag][e.slot]
-        if btn then pcall(updateButton, btn, e) end
+        if btn then
+            btn.molFreeLabel = nil
+            pcall(updateButton, btn, e)
+        end
     end
     for _, e in ipairs(empties) do
         local btn = buttons[e.bag] and buttons[e.bag][e.slot]
         if btn then
+            btn.molFreeLabel = nil
             pcall(updateButton, btn, e)
-            if free and free.items[1] == e and SetItemButtonCount then SetItemButtonCount(btn, free.total) end
+            if free and SetItemButtonCount then
+                for _, fg in ipairs(free) do
+                    if fg.items[1] == e then
+                        SetItemButtonCount(btn, fg.total)
+                        btn.molFreeLabel, btn.molFreeCount = fg.label .. " slot", fg.total
+                    end
+                end
+            end
         end
     end
 
