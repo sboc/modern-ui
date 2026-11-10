@@ -146,7 +146,7 @@ end
 ----------------------------------------------------------------------
 -- Blizzard's quest modules build the list of quests to draw in BuildQuestWatchInfos: the list is cut to the
 -- configured count there (the quests stay tracked, they are just not drawn). The super tracked quest is always
--- kept. Only hooked once a limit is set; 0 hands the full list back.
+-- kept. With an Azeroth Pilot Reloaded route running, the quests the route reaches next are the ones kept. Only hooked once a limit is set; 0 hands the full list back.
 local LIMIT_MODULES = { "CampaignQuestObjectiveTracker", "QuestObjectiveTracker" }   -- in drawing order
 local limitState = {}
 local lastLimit = 0
@@ -156,12 +156,83 @@ local function limitMax()
     return n > 0 and n or nil
 end
 
+-- Azeroth Pilot Reloaded: the quests the route needs next. Returns { [questID] = position } where position is the
+-- first upcoming step (current step included) that mentions the quest, or nil when APR has no route running.
+local ROUTE_LOOKAHEAD = 400
+
+local function routeRanks()
+    local apr = _G.APR
+    if not (apr and apr.ActiveRoute and apr.ActiveRoute ~= "" and apr.PlayerID and _G.APRData
+        and type(apr.GetRouteSteps) == "function" and type(apr.GetStepQuestIDs) == "function") then return end
+    local progress = _G.APRData[apr.PlayerID]
+    local index = progress and progress[apr.ActiveRoute]
+    if type(index) ~= "number" then return end
+    local steps = apr:GetRouteSteps(apr.ActiveRoute)
+    if type(steps) ~= "table" or #steps == 0 then return end
+    local ranks, count = {}, 0
+    for i = index, math.min(#steps, index + ROUTE_LOOKAHEAD) do
+        local step = steps[i]
+        if step and (type(apr.StepFilterQoL) ~= "function" or apr:StepFilterQoL(step)) then
+            for _, id in ipairs(apr:GetStepQuestIDs(step)) do
+                if not ranks[id] then ranks[id] = i; count = count + 1 end
+            end
+        end
+    end
+    if count > 0 then return ranks end
+end
+
+-- The quests allowed in the tracker when a route runs: the super tracked quest, then the watched quests in the
+-- order the route reaches them, then the rest in Blizzard's watch order. nil = no route, use the plain cut.
+local function routeAllowed(max)
+    if not (C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetQuestIDForQuestWatchIndex) then return end
+    local ranks = routeRanks()
+    if not ranks then return end
+    local sup = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID() or 0
+    local list = {}
+    for i = 1, C_QuestLog.GetNumQuestWatches() or 0 do
+        local id = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
+        if id then
+            local rank = (id == sup and 0) or ranks[id] or (1e6 + i)
+            list[#list + 1] = { id = id, rank = rank, order = i }
+        end
+    end
+    if #list == 0 then return end
+    table.sort(list, function(a, b)
+        if a.rank ~= b.rank then return a.rank < b.rank end
+        return a.order < b.order
+    end)
+    local allowed = {}
+    for i = 1, math.min(max, #list) do allowed[list[i].id] = true end
+    return allowed
+end
+
+local drawnSig   -- what the last cut kept ("plain" without a route): a rebuild is only worth it when this changes
+
+local function allowedSig(allowed)
+    if not allowed then return "plain" end
+    local ids = {}
+    for id in pairs(allowed) do ids[#ids + 1] = id end
+    table.sort(ids)
+    return table.concat(ids, ",")
+end
+
 local function limitInfos(tracker, infos)
     local max = limitMax()
     local state = limitState[tracker]
     if not (max and type(infos) == "table") then
         if state then state.shown = #(infos or {}) end
         return infos
+    end
+    local allowed = routeAllowed(max)
+    state.mode = allowed and "route" or "plain"
+    drawnSig = allowedSig(allowed)
+    if allowed then
+        local out = {}
+        for _, info in ipairs(infos) do
+            if info.quest and allowed[info.quest:GetID()] then out[#out + 1] = info end
+        end
+        state.shown = #out
+        return out
     end
     -- quests already drawn by the modules before this one share the same budget
     local used = 0
@@ -192,28 +263,92 @@ local function limitInfos(tracker, infos)
     return out
 end
 
+local function markLimitDirty(onlyIfChanged)
+    ns:AfterCombat("tracker_limit", function()
+        if onlyIfChanged then
+            -- every rebuild resizes the tracker (and APR re-attaches to it): skip it when the same quests stay
+            local max = limitMax()
+            local ok, allowed = pcall(routeAllowed, max or 0)
+            if max and ok and allowedSig(allowed) == drawnSig then return end
+        end
+        for _, name in ipairs(LIMIT_MODULES) do
+            local t = _G[name]
+            if t and limitState[t] and t.MarkDirty then pcall(t.MarkDirty, t) end
+        end
+    end)
+end
+
+-- the route moved on: the quests that are next change, so the cut has to be redone
+local aprHooked = false
+local function hookRoute()
+    local apr = _G.APR
+    if aprHooked or not (apr and type(apr.SetRouteProgress) == "function") then return end
+    aprHooked = true
+    hooksecurefunc(apr, "SetRouteProgress", function()
+        if limitMax() then C_Timer.After(0, function() markLimitDirty(true) end) end
+    end)
+end
+
+-- /mui tracker: what the route based cut sees and picks (errors are shown, not swallowed)
+function TR:Debug()
+    local apr = _G.APR
+    ns:Print(string.format("limit=%s APR=%s route=%s PlayerID=%s hooked=%s",
+        tostring(limitMax()), tostring(apr ~= nil), tostring(apr and apr.ActiveRoute), tostring(apr and apr.PlayerID),
+        tostring(aprHooked)))
+    local prog = apr and _G.APRData and _G.APRData[apr.PlayerID]
+    ns:Print("step index: " .. tostring(prog and apr.ActiveRoute and prog[apr.ActiveRoute]))
+    ns:Print(string.format("watch API: %s / %s, watches=%s",
+        tostring(C_QuestLog and C_QuestLog.GetNumQuestWatches ~= nil),
+        tostring(C_QuestLog and C_QuestLog.GetQuestIDForQuestWatchIndex ~= nil),
+        tostring(C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetNumQuestWatches())))
+    local ok, ranks = pcall(routeRanks)
+    if not ok then ns:Print("routeRanks error: " .. tostring(ranks)) return end
+    local n = 0
+    for _ in pairs(ranks or {}) do n = n + 1 end
+    ns:Print("route quests ahead: " .. n)
+    for i = 1, (C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetNumQuestWatches() or 0) do
+        local id = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
+        ns:Print(string.format("  watch %d: %s (%s) route step %s", i, tostring(id),
+            tostring(id and C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(id)),
+            tostring(ranks and id and ranks[id])))
+    end
+    for _, name in ipairs(LIMIT_MODULES) do
+        local t = _G[name]
+        local st = t and limitState[t]
+        ns:Print(string.format("%s: exists=%s wrapped=%s mode=%s calls=%s in=%s shown=%s err=%s", name, tostring(t ~= nil),
+            tostring(st ~= nil), tostring(st and st.mode), tostring(st and st.calls), tostring(st and st.lastIn), tostring(st and st.shown),
+            tostring(st and st.lastErr)))
+    end
+    local max = limitMax()
+    if not max then return end
+    local ok2, allowed = pcall(routeAllowed, max)
+    if not ok2 then ns:Print("routeAllowed error: " .. tostring(allowed)) return end
+    local ids = {}
+    for id in pairs(allowed or {}) do ids[#ids + 1] = id end
+    ns:Print("allowed: " .. (allowed and table.concat(ids, ", ") or "nil (plain cut)"))
+end
+
 local function applyLimit()
     local max = limitMax() or 0
+    if max > 0 then hookRoute() end
     for _, name in ipairs(LIMIT_MODULES) do
         local t = _G[name]
         if t and type(t.BuildQuestWatchInfos) == "function" and not limitState[t] and max > 0 then
-            local state = { original = t.BuildQuestWatchInfos, shown = 0 }
+            local state = { original = t.BuildQuestWatchInfos, shown = 0, calls = 0 }
             limitState[t] = state
             t.BuildQuestWatchInfos = function(self, ...)
                 local infos = state.original(self, ...)
                 local ok, out = pcall(limitInfos, self, infos)
+                state.calls = state.calls + 1
+                state.lastIn = type(infos) == "table" and #infos or tostring(infos)
+                state.lastErr = (not ok) and tostring(out) or nil
                 return ok and out or infos
             end
         end
     end
     if max == lastLimit then return end
     lastLimit = max
-    ns:AfterCombat("tracker_limit", function()
-        for _, name in ipairs(LIMIT_MODULES) do
-            local t = _G[name]
-            if t and limitState[t] and t.MarkDirty then pcall(t.MarkDirty, t) end
-        end
-    end)
+    markLimitDirty()
 end
 
 ----------------------------------------------------------------------
@@ -395,6 +530,12 @@ function TR:Start()
     end
     ns:On("EDIT_MODE_LAYOUTS_UPDATED", requestPlace)
     ns:On("PLAYER_ENTERING_WORLD", requestPlace)
+    -- APR sets up its route after Blizzard drew the tracker the first time: redo the cut once it has settled
+    ns:On("PLAYER_ENTERING_WORLD", function()
+        if not limitMax() then return end
+        hookRoute()
+        for _, delay in ipairs({ 1, 3, 6 }) do C_Timer.After(delay, function() markLimitDirty(true) end) end
+    end)
     ns:On("PLAYER_LEVEL_UP", requestPlace)
     ns:On("QUEST_LOG_UPDATE", requestSkin)
     ns:On("QUEST_WATCH_LIST_CHANGED", requestSkin)

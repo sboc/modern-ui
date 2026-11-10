@@ -548,6 +548,8 @@ SlashCmdList["MODERNUI"] = function(msg)
         ns.Mover:Unlock()
     elseif cmd == "lock" then
         ns.Mover:Lock()
+    elseif cmd == "tracker" and ns.Tracker and ns.Tracker.Debug then
+        ns.Tracker:Debug()
     elseif cmd == "bags" and ns.MenuBars and ns.MenuBars.DebugBags then
         ns.MenuBars:DebugBags()
     elseif cmd == "auras" then
