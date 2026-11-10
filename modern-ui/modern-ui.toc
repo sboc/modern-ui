@@ -3,6 +3,8 @@
 ## Notes: Replaces the default action bars and unit frames for WoW Forever. Includes a setup wizard and full configuration.
 ## Author: sboc
 ## Version: 1.0.0
+## X-Copyright: Copyright (c) 2026 sboc
+## X-License: All Rights Reserved
 ## IconTexture: Interface\AddOns\modern-ui\media\icon.tga
 ## SavedVariables: ModernUIDB, MolUIDB
 ## OptionalDeps: LibSharedMedia-3.0, APR
