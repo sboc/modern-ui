@@ -285,6 +285,9 @@ local function consumableOptions()
     o[#o + 1] = Header("Health potion")
     o[#o + 1] = Check("consumables.healthpot.enabled", "Manage the " .. K.MACROS.healthpot .. " macro")
     o[#o + 1] = Text("Points the macro at the health potion that heals the most among the ones you are high enough level to use. Rejuvenation potions only win when no pure healing potion is as big.")
+    o[#o + 1] = Header("Hunter pet food")
+    o[#o + 1] = Check("consumables.petfood.enabled", "Manage the " .. K.MACROS.petfood .. " macro (hunters)")
+    o[#o + 1] = Text("Feeds your current pet the worst food in your bags that its diet allows, judged by the food priority above, so your good buff food stays for you. The macro runs Feed Pet and uses the item; it re-picks when you summon another pet. The diet is guessed from the item name (English client).")
     return o
 end
 

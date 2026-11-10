@@ -165,6 +165,7 @@ ns.defaults = {
         food  = { enabled = true, priority = ns.CopyTable(ns.Consumables.DEFAULT_PRIORITY.food),  disabled = {} },
         water = { enabled = true, priority = ns.CopyTable(ns.Consumables.DEFAULT_PRIORITY.water), disabled = {} },
         healthpot = { enabled = true },
+        petfood = { enabled = true },   -- hunters only: worst food the current pet can eat
     },
     skins = { enabled = true, character = true, spellbook = true, worldmap = true, gamemenu = true, npc = true, loot = true,
               social = true, bank = true, groupfinder = true, collections = true, services = true, taxi = true, breath = true, bubbles = true,

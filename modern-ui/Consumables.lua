@@ -1,16 +1,18 @@
 local ADDON, ns = ...
 
--- Consumables: keeps three global macros ("Food", "Water", "Health Potion", shared by all characters) pointed at the best
--- food / drink / health potion in your bags. The potion pick is simply the biggest heal you can use at your level.
+-- Consumables: keeps four global macros ("Food", "Water", "Health Potion", "Pet Food", shared by all characters) pointed at the
+-- best food / drink / health potion in your bags. The potion pick is simply the biggest heal you can use at your level.
+-- Hunters also get "Pet Food": the WORST food (by the food stat priority) that the current pet's diet allows, so the good
+-- buff food stays for the player.
 -- "Best" = the user's stat priority list first (attack power, spell power, ...), then the bigger buff, then the bigger
 -- restore, then the higher level item. Items above your level are ignored. Macros can only be edited out of
 -- combat, so updates made in combat are queued until it ends.
 local K = ns:NewModule("consumables")
 ns.Consumables = K
 
-K.MACROS = { food = "Food", water = "Water", healthpot = "Health Potion" }
-local KINDS = { "food", "water", "healthpot" }
-local KIND_LABEL = { food = "Food", water = "Water", healthpot = "Health potion" }
+K.MACROS = { food = "Food", water = "Water", healthpot = "Health Potion", petfood = "Pet Food" }
+local KINDS = { "food", "water", "healthpot", "petfood" }
+local KIND_LABEL = { food = "Food", water = "Water", healthpot = "Health potion", petfood = "Pet food" }
 local OLD_MACROS = { food = "MolFood", water = "MolWater" }   -- renamed in place if still around
 
 -- key, label, tooltip fragments (lowercase, plain text match). First matching fragment wins.
@@ -243,6 +245,79 @@ local function classify(itemID, link)
 end
 
 ----------------------------------------------------------------------
+-- Hunter pet food
+----------------------------------------------------------------------
+-- The client has no item -> diet lookup, so the diet is guessed from the item name (English). First matching diet wins,
+-- fish / fungus / cheese / bread / fruit are checked before the broad meat words.
+local DIET_WORDS = {
+    { "fish",   { "fish", "salmon", "trout", "bass", "catfish", "snapper", "eel", "mackerel", "cod", "lobster", "clam", "oyster",
+                  "squid", "tuna", "herring", "yellowtail", "mudfish", "shrimp", "crab", "sturgeon", "bream" } },
+    { "fungus", { "mushroom", "fungus", "shroom", "truffle", "morel", "toadstool", "cap" } },
+    { "cheese", { "cheese" } },
+    { "bread",  { "bread", "loaf", "muffin", "biscuit", "roll", "pastry", "bun", "cake", "cracker", "pretzel", "scone" } },
+    { "fruit",  { "apple", "banana", "melon", "grape", "pear", "orange", "berry", "berries", "fruit", "cherry", "peach", "plum",
+                  "pineapple", "lemon", "mango", "papaya", "coconut" } },
+    { "meat",   { "meat", "jerky", "steak", "ribs", "chop", "haunch", "sausage", "wing", "bacon", "roast", "kabob", "venison",
+                  "ham", "tenderloin", "chicken", "brisket", "drumstick", "stew", "liver", "heart", "tongue", "egg" } },
+}
+
+local function itemName(link)
+    local n = type(link) == "string" and link:match("%[(.-)%]")
+    return n and n:lower() or ""
+end
+
+-- diet key ("meat", "fish", ...) or nil
+local function itemDiet(link, classID, subClassID)
+    local name = itemName(link)
+    for _, d in ipairs(DIET_WORDS) do
+        for _, w in ipairs(d[2]) do
+            -- whole words only ("roll" must not match "troll")
+            if (" " .. name .. " "):find("%A" .. w .. "s?%A") then return d[1] end
+        end
+    end
+    local tradeGoods = (Enum and Enum.ItemClass and Enum.ItemClass.Tradegoods) or 7
+    if classID == tradeGoods and subClassID == 8 then return "meat" end   -- raw meat (Trade Goods > Meat)
+end
+
+-- vanilla diets by creature family, only used when the client has no GetPetFoodTypes (English family names)
+local FAMILY_DIET = {
+    ["Bat"] = "fruit fungus", ["Bear"] = "bread fish fruit fungus meat", ["Boar"] = "bread cheese fish fruit fungus meat",
+    ["Carrion Bird"] = "fish meat", ["Cat"] = "fish meat", ["Crab"] = "bread fish fruit fungus", ["Crocolisk"] = "fish meat",
+    ["Gorilla"] = "fruit fungus", ["Hyena"] = "fruit meat", ["Owl"] = "meat", ["Raptor"] = "meat", ["Scorpid"] = "meat",
+    ["Serpent"] = "meat", ["Spider"] = "meat", ["Tallstrider"] = "fruit fungus", ["Turtle"] = "fish fruit fungus",
+    ["Wind Serpent"] = "bread cheese fish", ["Wolf"] = "meat",
+}
+
+-- set of diet keys the current pet eats (a cat: meat + fish), or nil without a pet / when nothing can tell
+local function petDiets()
+    if not UnitExists("pet") then return end
+    local set, n = {}, 0
+    if GetPetFoodTypes then
+        local ok, list = pcall(function() return { GetPetFoodTypes() } end)
+        if ok and type(list) == "table" then
+            for _, v in ipairs(list) do
+                if type(v) == "string" then set[v:lower()] = true; n = n + 1 end
+            end
+        end
+    end
+    if n == 0 then
+        local family = UnitCreatureFamily and UnitCreatureFamily("pet")
+        local words = type(family) == "string" and FAMILY_DIET[family]
+        for w in (words or ""):gmatch("%a+") do set[w] = true; n = n + 1 end
+    end
+    return n > 0 and set or nil
+end
+
+local function isHunter()
+    local _, class = UnitClass("player")
+    return class == "HUNTER"
+end
+
+function K:PetFoodActive()
+    return isHunter() and cfg().petfood and cfg().petfood.enabled
+end
+
+----------------------------------------------------------------------
 -- Choosing
 ----------------------------------------------------------------------
 local function bagRange()
@@ -298,6 +373,17 @@ local function score(info, kind, rank, minLevel)
     return { bestRank, -bestAmt, -restore, -minLevel }
 end
 
+-- pet food: reverse of the food order. Items with no listed stat are the worst (rank 1000), then the smallest buff,
+-- then the smallest restore; a higher item level wins last so the feeding still gives the pet happiness
+local function petScore(info, rank, minLevel)
+    local bestRank, bestAmt = 1000, 0
+    for key, amt in pairs(info.cats) do
+        local r = rank[key]
+        if r and (r < bestRank or (r == bestRank and amt > bestAmt)) then bestRank, bestAmt = r, amt end
+    end
+    return { -bestRank, bestAmt, info.healthAmt, -minLevel }
+end
+
 local function better(a, b)
     if not b then return true end
     for i = 1, #a do
@@ -311,6 +397,7 @@ function K:Scan()
     local playerLevel = UnitLevel("player") or 1
     local ranks = { food = buildRank("food"), water = buildRank("water") }
     local best, bestScore = {}, {}
+    local diets = K:PetFoodActive() and petDiets() or nil
     local pending = false
     local seen = {}
     local first, last = bagRange()
@@ -323,6 +410,27 @@ function K:Scan()
                 seen[id] = true
                 local info, wait = classify(id, link)
                 if wait then pending = true end
+                if diets then
+                    local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+                    local _, _, _, _, _, classID, subClassID = getInstant(link)
+                    local diet = itemDiet(link, classID, subClassID)
+                    local consumable = (Enum and Enum.ItemClass and Enum.ItemClass.Consumable) or 0
+                    -- cooked food must be real food (not a drink or potion); raw meat has no tooltip restore line
+                    local edible = diet and diets[diet] and (classID ~= consumable or (info and info.food and not info.healthpot))
+                    if edible then
+                        local minLevel = itemMinLevel(link)
+                        if not minLevel then pending = true end
+                        minLevel = minLevel or 0
+                        if minLevel <= playerLevel then
+                            local pinfo = info or { healthAmt = 0, manaAmt = 0, cats = {} }
+                            local s = petScore(pinfo, ranks.food, minLevel)
+                            if better(s, bestScore.petfood) then
+                                bestScore.petfood = s
+                                best.petfood = { itemID = id, link = link }
+                            end
+                        end
+                    end
+                end
                 if info then
                     local minLevel = itemMinLevel(link)
                     if not minLevel then pending = true end
@@ -349,6 +457,7 @@ end
 -- Macros
 ----------------------------------------------------------------------
 local function macroBody(kind, pick)
+    if pick and kind == "petfood" then return "#showtooltip\n/cast Feed Pet\n/use item:" .. pick.itemID end
     if pick then return "#showtooltip\n/use item:" .. pick.itemID end
     return "#showtooltip\n/run print(\"Modern UI: no " .. KIND_LABEL[kind]:lower() .. " in your bags\")"
 end
@@ -395,7 +504,13 @@ function K:Update()
     ns:AfterCombat("consumables", function()
         local best, pending = K:Scan()
         for _, kind in ipairs(KINDS) do
-            if cfg()[kind] and cfg()[kind].enabled then
+            local active = cfg()[kind] and cfg()[kind].enabled
+            if kind == "petfood" then
+                -- hunters only; without a pet the macro keeps its last item (it is still created, empty, if missing)
+                active = active and K:PetFoodActive()
+                if active and not (UnitExists("pet") and petDiets()) and GetMacroIndexByName(K.MACROS.petfood) > 0 then active = false end
+            end
+            if active then
                 local ok, err = pcall(writeMacro, kind, best[kind])
                 if not ok then geterrorhandler()(err) end
             end
@@ -421,6 +536,12 @@ function K:Debug(verbose)
     for _, kind in ipairs(KINDS) do
         local p = best[kind]
         ns:Print(string.format("%s: %s", kind, p and p.link or "none"))
+    end
+    if isHunter() then
+        local d = petDiets()
+        local names = {}
+        for k in pairs(d or {}) do names[#names + 1] = k end
+        ns:Print("pet diet: " .. (#names > 0 and table.concat(names, ", ") or "unknown (no pet, or the client gave no diet)"))
     end
     if not verbose then return end
     local seen = {}
@@ -458,6 +579,10 @@ end
 function K:Init()
     ns:On("BAG_UPDATE_DELAYED", function() K:Queue(0.5) end)
     ns:On("PLAYER_LEVEL_UP", function() K:Queue(1) end)
+    ns:On("UNIT_PET", function(_, unit)
+        if (unit == nil or unit == "player") and ns.db and isHunter() then K:Queue(1) end
+    end)
+    ns:On("PET_STABLE_UPDATE", function() if ns.db and isHunter() then K:Queue(1) end end)
     ns:On("PLAYER_SPECIALIZATION_CHANGED", function(_, unit)
         if (unit == nil or unit == "player") and ns.db and cfg().auto then K:Queue(1) end
     end)
