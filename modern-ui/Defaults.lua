@@ -157,7 +157,7 @@ ns.defaults = {
                    movable = true, positions = {} },
     custombags = { enabled = false, columns = 10, slotSize = 36, showNew = true,
                    sections = {}, pins = {}, collapsed = {} },   -- own sections, itemID -> section key, collapsed sections
-    vendor = { autoSellJunk = true, summary = true },
+    vendor = { autoSellJunk = true, summary = true, protected = {} },   -- protected: itemID -> true, selling asks first
     consumables = {
         enabled = true,    -- keep the Food / Water / Health Potion macros pointed at the best item in the bags
         announce = true,   -- print when the pick changes

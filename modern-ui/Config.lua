@@ -226,6 +226,12 @@ local function bagWindowOptions()
         Check("vendor.autoSellJunk", "Automatically sell gray (junk) items when a merchant opens"),
         Check("vendor.summary", "Print what was sold and for how much"),
         Text("Sold items can be bought back from the merchant's buyback tab."),
+        Text("Protect an item (a skinning knife, say): Alt+click it in your bags. Selling it by right-clicking at a merchant then asks for confirmation, and auto sell skips it. Alt+click again to remove. Also: /mui protect [shift-click an item]."),
+        Text("Protected now (reopen this page to refresh): " .. (function()
+            local names = ns.Vendor and ns.Vendor.ProtectedNames and ns.Vendor.ProtectedNames() or {}
+            return #names > 0 and table.concat(names, ", ") or "none"
+        end)()),
+        Button("Clear protected items", function() if ns.Vendor then ns.Vendor:ClearProtected(); ns:Print("Cleared protected items.") end end),
     }
 end
 

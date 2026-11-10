@@ -527,6 +527,12 @@ SLASH_MODERNUI1 = "/mui"
 SlashCmdList["MODERNUI"] = function(msg)
     local cmd = (msg or ""):lower():match("^%s*(%S*)")
     local rest = (msg or ""):lower():match("^%s*%S+%s+(%S+)")
+    if cmd == "protect" then
+        local link = (msg or ""):match("(|c%x+|Hitem:.-|h%[.-%]|h|r)") or (msg or ""):match("(item:%d+)")
+        if link and ns.Vendor then ns.Vendor:SetProtected(link)
+        else ns:Print("Usage: /mui protect [shift-click an item]  (or Alt+click an item in your bags)") end
+        return
+    end
     if cmd == "" or cmd == "config" or cmd == "options" then
         ns.Config:Toggle()
     elseif cmd == "wizard" or cmd == "setup" then
