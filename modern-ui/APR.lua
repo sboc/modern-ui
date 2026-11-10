@@ -130,6 +130,61 @@ local function install()
     return true
 end
 
+-- Navigation arrow position. APR keeps it in its own profile (arrowleft / arrowtop) and rewrites it on
+-- UI_SCALE_CHANGED, DISPLAY_SIZE_CHANGED and PLAYER_ENTERING_WORLD (clamping it to the screen as it is at
+-- that moment). We keep our own copy of the spot the player dragged it to and put it back after every
+-- APR restore. Left / top are APR's own units: UIParent offsets from its top-left corner.
+local arrowHooked, arrowSaving = false, false
+
+local function arrowSaved() return cfg() and cfg().arrow end
+
+local function applyArrow()
+    local saved = arrowSaved()
+    local arrow, frame = APR.Arrow, APR.ArrowFrameM
+    local profile = APR.settings and APR.settings.profile
+    if not (saved and arrow and frame and profile) then return end
+    local left, top = arrow:ClampPosition(saved.left, saved.top)
+    if left == nil then return end
+    profile.arrowleft, profile.arrowtop = left, top
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", left, top)
+end
+
+local function installArrow()
+    if arrowHooked then return end
+    local arrow = APR.Arrow
+    if not (arrow and type(arrow.SavePosition) == "function" and type(arrow.RestorePosition) == "function"
+        and type(arrow.ClampPosition) == "function" and APR.ArrowFrameM) then return end
+    local profile = APR.settings and APR.settings.profile
+    if not (profile and cfg()) then return end   -- APR's saved variables not loaded yet: retried on entering the world
+    arrowHooked = true
+
+    -- no saved spot yet: adopt wherever APR has it now, so nothing moves the first time
+    if cfg() and not cfg().arrow and profile and type(profile.arrowleft) == "number"
+        and type(profile.arrowtop) == "number" then
+        cfg().arrow = { left = profile.arrowleft, top = profile.arrowtop }
+    end
+
+    -- the player dragged it (or placed it in APR's layout editor): remember that spot
+    local save = arrow.SavePosition
+    function arrow:SavePosition(frame, prof, ...)
+        arrowSaving = true
+        local ok, err = pcall(save, self, frame, prof, ...)
+        arrowSaving = false
+        if not ok then error(err, 0) end
+        local p = APR.settings and APR.settings.profile
+        if cfg() and p and (prof == nil or prof == p)
+            and type(p.arrowleft) == "number" and type(p.arrowtop) == "number" then
+            cfg().arrow = { left = p.arrowleft, top = p.arrowtop }
+        end
+    end
+    -- APR restored it from its own profile (scale / resolution / zone change): ours wins
+    hooksecurefunc(arrow, "RestorePosition", function()
+        if not arrowSaving then applyArrow() end
+    end)
+    applyArrow()
+end
+
 local lastSig
 local function refresh(force)
     if not (installed and cfg()) then return end
@@ -149,6 +204,10 @@ end
 
 function AP:Init()
     APR = _G.APR
+    if not APR then return end
+    -- the arrow is kept in place whether or not the guide panels are skinned
+    ns:On("PLAYER_ENTERING_WORLD", function() C_Timer.After(0, function() installArrow(); applyArrow() end) end)
+    pcall(installArrow)
     if not install() then return end
     -- APR builds (and skins) its frames on its own schedule: re-skin once it has settled
     C_Timer.After(1, function() refresh(true) end)
