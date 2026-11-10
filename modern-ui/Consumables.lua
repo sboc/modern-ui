@@ -261,6 +261,14 @@ local DIET_WORDS = {
                   "ham", "tenderloin", "chicken", "brisket", "drumstick", "stew", "liver", "heart", "tongue", "egg" } },
 }
 
+-- items the game flags as crafting reagents (GetItemInfo's 17th return) are never picked for the food / water macros
+local function isCraftingReagent(link)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if not getInfo then return false end
+    local ok, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q = pcall(getInfo, link)
+    return ok and q == true
+end
+
 local function itemName(link)
     local n = type(link) == "string" and link:match("%[(.-)%]")
     return n and n:lower() or ""
@@ -440,6 +448,7 @@ function K:Scan()
                         end
                     end
                 end
+                if info and isCraftingReagent(link) then info = nil end
                 if info then
                     local minLevel = itemMinLevel(link)
                     if not minLevel then pending = true end
