@@ -22,12 +22,17 @@ local function slotInfo(bag, slot)
     if ok and type(info) == "table" then return info end
 end
 
--- originals, captured before the sell guard below wraps them (auto sell and confirmed sells go through these)
-local origUse = (C_Container and C_Container.UseContainerItem) or UseContainerItem
-local origGlobalUse = _G.UseContainerItem
+-- Never replace C_Container.UseContainerItem: writing to a Blizzard table taints it, and then every right-click
+-- use of an item (scrolls, potions...) runs tainted and gets blocked as a protected action. Selling is only
+-- observed with hooksecurefunc; a protected item that got sold is bought back right away and confirmed instead.
+local bypass = false
 
 local function useItem(bag, slot)
-    if origUse then pcall(origUse, bag, slot) end
+    local use = (C_Container and C_Container.UseContainerItem) or UseContainerItem
+    if not use then return end
+    bypass = true
+    pcall(use, bag, slot)
+    bypass = false
 end
 
 -- protected items: itemID -> true. Selling one (right-click at a merchant) asks for confirmation first.
@@ -75,24 +80,60 @@ local function protectedList()
     return out
 end
 
--- confirm popup for selling a protected item
-local function confirmSell(bag, slot, id, link)
-    ns.UI.Confirm("Sell protected item?\n" .. (link or itemName(nil, id)), function()
-        if merchantOpen and slotItemID(bag, slot) == id then useItem(bag, slot) end
-    end)
+local lastBag = (NUM_BAG_SLOTS or 4) + (NUM_REAGENTBAG_SLOTS or 1)
+
+local function findItem(id)
+    for bag = 0, lastBag do
+        for slot = 1, numSlots(bag) do
+            if slotItemID(bag, slot) == id then return bag, slot end
+        end
+    end
 end
 
-local function guard(orig)
-    return function(bag, slot, ...)
-        if merchantOpen and ns.db and not InCombatLockdown() then
-            local id, info = slotItemID(bag, slot)
-            if isProtected(id) then
-                confirmSell(bag, slot, id, info and info.hyperlink)
-                return
-            end
+-- buyback slots holding this item: index of the newest one and how many there are
+local function buybackCount(id)
+    local n, newest = 0, nil
+    if GetNumBuybackItems and GetBuybackItemLink then
+        for i = 1, GetNumBuybackItems() do
+            if itemIDFromLink(GetBuybackItemLink(i)) == id then n = n + 1; newest = i end
         end
-        return orig(bag, slot, ...)
     end
+    return n, newest
+end
+
+-- A protected item was right-clicked at the merchant. The client keeps showing it until the server answers, so it
+-- is still readable here. Wait until it shows up in the buyback list (retrying - latency varies), buy it back,
+-- then ask whether it should really be sold.
+local pending = {}
+local function onUse(bag, slot)
+    if bypass or not merchantOpen or not ns.db or not BuybackItem then return end
+    local id, info = slotItemID(bag, slot)
+    local key = bag * 100 + slot
+    if not id or not isProtected(id) or pending[key] then return end
+    pending[key] = true
+    local link = info and info.hyperlink
+    local before = buybackCount(id)
+    local tries = 0
+    local function check()
+        if not merchantOpen then pending[key] = nil; return end
+        local now, idx = buybackCount(id)
+        if now > before and idx then
+            pending[key] = nil
+            BuybackItem(idx)
+            ns.UI.Confirm("Sell protected item?\n" .. (link or itemName(nil, id)), function()
+                if not merchantOpen then return end
+                C_Timer.After(0.1, function()
+                    local b, sl = findItem(id)
+                    if b then useItem(b, sl) end
+                end)
+            end)
+            return
+        end
+        tries = tries + 1
+        if tries >= 15 then pending[key] = nil; return end
+        C_Timer.After(0.15, check)
+    end
+    C_Timer.After(0.1, check)
 end
 
 local function sellPrice(info)
@@ -164,8 +205,8 @@ local function bagButtonUnderMouse()
 end
 
 function V:Init()
-    if C_Container and C_Container.UseContainerItem then C_Container.UseContainerItem = guard(origUse)
-    elseif origGlobalUse then _G.UseContainerItem = guard(origGlobalUse) end
+    if C_Container and C_Container.UseContainerItem then hooksecurefunc(C_Container, "UseContainerItem", onUse)
+    elseif _G.UseContainerItem then hooksecurefunc("UseContainerItem", onUse) end
 
     if _G.HandleModifiedItemClick then
         hooksecurefunc("HandleModifiedItemClick", function(link)
