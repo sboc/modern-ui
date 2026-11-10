@@ -269,6 +269,8 @@ end
 -- diet key ("meat", "fish", ...) or nil
 local function itemDiet(link, classID, subClassID)
     local name = itemName(link)
+    -- compound names ("sagefish", "smallfish", "mightfish"); "fishing" does not end in fish
+    if (" " .. name .. " "):find("%afish%A") then return "fish" end
     for _, d in ipairs(DIET_WORDS) do
         for _, w in ipairs(d[2]) do
             -- whole words only ("roll" must not match "troll")
