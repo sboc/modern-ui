@@ -279,6 +279,11 @@ local function itemDiet(link, classID, subClassID)
     if classID == tradeGoods and subClassID == 8 then return "meat" end   -- raw meat (Trade Goods > Meat)
 end
 
+-- uncooked fish ("Raw Sagefish"): a cooking ingredient, never picked for the pet food or the food macro
+local function isRawFish(link, classID, subClassID)
+    return itemName(link):find("^raw ") ~= nil and itemDiet(link, classID, subClassID) == "fish"
+end
+
 -- vanilla diets by creature family, only used when the client has no GetPetFoodTypes (English family names)
 local FAMILY_DIET = {
     ["Bat"] = "fruit fungus", ["Bear"] = "bread fish fruit fungus meat", ["Boar"] = "bread cheese fish fruit fungus meat",
@@ -410,9 +415,11 @@ function K:Scan()
                 seen[id] = true
                 local info, wait = classify(id, link)
                 if wait then pending = true end
-                if diets then
-                    local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
-                    local _, _, _, _, _, classID, subClassID = getInstant(link)
+                local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+                local _, _, _, _, _, classID, subClassID = getInstant(link)
+                local raw = isRawFish(link, classID, subClassID)
+                if raw then info = nil end
+                if diets and not raw then
                     local diet = itemDiet(link, classID, subClassID)
                     local consumable = (Enum and Enum.ItemClass and Enum.ItemClass.Consumable) or 0
                     -- cooked food must be real food (not a drink or potion); raw meat has no tooltip restore line
