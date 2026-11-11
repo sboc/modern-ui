@@ -262,6 +262,75 @@ function V:CreateTrashButton(parent, w, h)
     return b
 end
 
+-- Deposit button at the bank: moves every trade goods stack (item class Tradeskill) from the bags into the bank,
+-- the same way a right-click does - so it lands in whichever bank tab / panel is open. Whatever does not fit (or
+-- cannot go there, e.g. soulbound into the warband bank) stays in the bags.
+local bankOpen, depositing = false, false
+local TRADEGOODS = (Enum and Enum.ItemClass and Enum.ItemClass.Tradegoods) or 7
+
+local function isTradeGood(info)
+    local id = info.itemID or itemIDFromLink(info.hyperlink)
+    local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+    if not (id and getInstant) then return false end
+    local ok, _, _, _, _, _, classID = pcall(getInstant, id)
+    return ok and classID == TRADEGOODS
+end
+
+local function tradeGoodSlots()
+    local list = {}
+    for bag = 0, lastBag do
+        for slot = 1, numSlots(bag) do
+            local info = slotInfo(bag, slot)
+            if info and not info.isLocked and isTradeGood(info) then list[#list + 1] = { bag = bag, slot = slot } end
+        end
+    end
+    return list
+end
+
+function V:DepositTradeGoods()
+    if depositing or not bankOpen then return end
+    if CursorHasItem and CursorHasItem() then ns:Print("Drop the item on your cursor first."); return end
+    local list = tradeGoodSlots()
+    if #list == 0 then ns:Print("No trade goods in your bags."); return end
+    depositing = true
+    local i = 1
+    -- a few stacks per tick, like selling: moving everything in one frame can be dropped by the server
+    local function step()
+        if not bankOpen then depositing = false; return end
+        for _ = 1, 6 do
+            local it = list[i]
+            if not it then break end
+            useItem(it.bag, it.slot)
+            i = i + 1
+        end
+        if i <= #list then C_Timer.After(0.1, step) return end
+        -- count again once the server has answered: what is still in the bags did not fit
+        C_Timer.After(0.5, function()
+            depositing = false
+            local left = #tradeGoodSlots()
+            local moved = math.max(0, #list - left)
+            ns:Print(string.format("Deposited %d trade goods stack%s.%s", moved, moved == 1 and "" or "s",
+                left > 0 and string.format(" %d could not be deposited (bank full?).", left) or ""))
+        end)
+    end
+    step()
+end
+
+local depositButton
+local function createDepositButton()
+    local bank = _G.BankFrame
+    if depositButton or not bank then return end
+    depositButton = ns.UI.Button(bank, "Deposit", 70, 20, function() V:DepositTradeGoods() end)
+    depositButton:SetPoint("TOPRIGHT", bank, "BOTTOMRIGHT", 0, -2)
+    depositButton:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Deposit trade goods", 1, 1, 1)
+        GameTooltip:AddLine("Moves all trade goods from your bags into the open bank tab.", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    depositButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
 -- Alt+click an item in a bag toggles its protection
 local function bagButtonUnderMouse()
     local f
@@ -298,6 +367,8 @@ function V:Init()
         if ns.db and cfg().autoSellJunk then C_Timer.After(0.2, function() V:SellJunk() end) end
     end)
     ns:On("MERCHANT_CLOSED", function() merchantOpen = false; selling = false end)
+    ns:On("BANKFRAME_OPENED", function() bankOpen = true; createDepositButton() end)
+    ns:On("BANKFRAME_CLOSED", function() bankOpen = false end)
 end
 
 V.ProtectedNames = protectedList
