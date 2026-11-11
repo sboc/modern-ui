@@ -640,7 +640,7 @@ function Config:Build()
     local win = UI.Window("ModernUIConfigFrame", "Modern UI  |cff888888v" .. ns.version .. "|r", 820, 620)
     self.win = win
 
-    local reload = UI.Button(win.titleBar, "Reload UI", 70, 20, function() ReloadUI() end)
+    local reload = UI.Button(win.titleBar, "Reload UI", 90, 20, function() ReloadUI() end)
     reload:SetPoint("RIGHT", win.closeButton, "LEFT", -6, 0)
 
     local side = CreateFrame("Frame", nil, win)
