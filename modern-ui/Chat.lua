@@ -416,19 +416,29 @@ local function openCopy(side)
         eb:SetPoint("TOPLEFT", 0, 0)
         eb:SetWidth(560)
         eb:SetScript("OnEscapePressed", function() win:Hide() end)
-        eb:SetScript("OnTextChanged", function(self)
-            area:SetContentHeight((self:GetHeight() or 100) + 16)
-        end)
-        win.eb, win.area = eb, area
+        -- a multi-line edit box does not reliably size itself to its text (after an empty copy it stayed
+        -- collapsed: the text was there and copyable, but not drawn), so the height is measured with a hidden
+        -- font string of the same font and width and set explicitly
+        local measure = area.content:CreateFontString(nil, "ARTWORK")
+        measure:SetFont(ns:GetFont(), 14, "")
+        measure:SetWidth(560)
+        measure:SetJustifyH("LEFT")
+        measure:Hide()
+        win.eb, win.area, win.measure = eb, area, measure
         copyWin = win
     end
     local lines, hidden = copyLines(side)
     copyWin.hint:SetText("Ctrl+C copies the selection (everything is selected). Esc closes."
         .. (hidden > 0 and ("  " .. hidden .. " protected line(s) cannot be copied.") or ""))
-    copyWin.eb:SetText(table.concat(lines, "\n"))
+    local text = table.concat(lines, "\n")
+    copyWin.measure:SetText(text)
+    local h = math.max(copyWin.area.frame:GetHeight() or 0, (copyWin.measure:GetStringHeight() or 0) + 20)
+    copyWin.eb:SetHeight(h)
+    copyWin.eb:SetText(text)
     copyWin:Show()
     copyWin.eb:SetFocus()
     copyWin.eb:HighlightText()
+    copyWin.area:SetContentHeight(h + 16)
     copyWin.area:ScrollToBottom()
 end
 
