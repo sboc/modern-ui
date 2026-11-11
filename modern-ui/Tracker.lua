@@ -29,6 +29,7 @@ local started = false
 local requestPlace
 local placing = false   -- our own re-anchoring must not trigger the re-anchor hooks
 local placeQueued, skinQueued = false, false
+local reanchors = 0   -- times Blizzard moved the tracker and we put it back (/mui tracker)
 local hooked = {}
 
 local function cfg() return ns.db.tracker end
@@ -61,8 +62,16 @@ local function skinHeader(header)
     local text = header.Text
     if type(text) == "table" and text.SetTextColor then
         pcall(function()
-            ns:SetFont(text, 15, "OUTLINE")
-            text:SetTextColor(ACCENT[1], ACCENT[2], ACCENT[3])
+            -- the skin runs after every tracker update (each looted item fires one): a font write re-renders
+            -- the text even when nothing changed, so only write what differs
+            local file, size, flags = text:GetFont()
+            if file ~= ns:GetFont() or math.abs((size or 0) - 15) > 0.01 or flags ~= "OUTLINE" then
+                ns:SetFont(text, 15, "OUTLINE")
+            end
+            local r, g, b = text:GetTextColor()
+            if math.abs(r - ACCENT[1]) > 0.01 or math.abs(g - ACCENT[2]) > 0.01 or math.abs(b - ACCENT[3]) > 0.01 then
+                text:SetTextColor(ACCENT[1], ACCENT[2], ACCENT[3])
+            end
         end)
     end
     if not header.molLine then
@@ -89,10 +98,13 @@ local function fitPanelUnsafe()
         end
     end)
     if not (top and bottom) or top <= bottom then panel:Hide() return end
-    panel:ClearAllPoints()
-    panel:SetPoint("TOPRIGHT", f, "TOPRIGHT", 8, 8)
-    panel:SetSize((f:GetWidth() or 250) + 16, (top - bottom) + 16)
-    panel.bg:SetColorTexture(0.03, 0.03, 0.04, c.bgAlpha)
+    if panel:GetNumPoints() == 0 then panel:SetPoint("TOPRIGHT", f, "TOPRIGHT", 8, 8) end
+    local w, h = (f:GetWidth() or 250) + 16, (top - bottom) + 16
+    if math.abs(panel:GetWidth() - w) > 0.01 or math.abs(panel:GetHeight() - h) > 0.01 then panel:SetSize(w, h) end
+    if panel.bgAlpha ~= c.bgAlpha then
+        panel.bgAlpha = c.bgAlpha
+        panel.bg:SetColorTexture(0.03, 0.03, 0.04, c.bgAlpha)
+    end
     panel.borderFrame:SetShown(c.borders)
     panel:Show()
 end
@@ -105,8 +117,13 @@ local function skinAll()
     local c = cfg()
     if not c.enabled then return end
 
-    if c.fontSize and c.fontSize > 0 and _G.ObjectiveFont then
-        pcall(_G.ObjectiveFont.SetFont, _G.ObjectiveFont, ns:GetFont(), c.fontSize, "")
+    -- ObjectiveFont is shared by every objective line: setting it (even to the same values) re-renders them all
+    local of = _G.ObjectiveFont
+    if c.fontSize and c.fontSize > 0 and of then
+        local file, size, flags = of:GetFont()
+        if file ~= ns:GetFont() or math.abs((size or 0) - c.fontSize) > 0.01 or (flags or "") ~= "" then
+            pcall(of.SetFont, of, ns:GetFont(), c.fontSize, "")
+        end
     end
 
     if c.skin then
@@ -295,6 +312,7 @@ function TR:Debug()
     ns:Print(string.format("limit=%s APR=%s route=%s PlayerID=%s hooked=%s",
         tostring(limitMax()), tostring(apr ~= nil), tostring(apr and apr.ActiveRoute), tostring(apr and apr.PlayerID),
         tostring(aprHooked)))
+    ns:Print("re-anchored after Blizzard moved it: " .. reanchors .. " times")
     local prog = apr and _G.APRData and _G.APRData[apr.PlayerID]
     ns:Print("step index: " .. tostring(prog and apr.ActiveRoute and prog[apr.ActiveRoute]))
     ns:Print(string.format("watch API: %s / %s, watches=%s",
@@ -509,11 +527,16 @@ function TR:Start()
         panel:Hide()
         if f.ApplySystemAnchor then hooksecurefunc(f, "ApplySystemAnchor", requestPlace) end
         -- Blizzard re-anchors the tracker to its default spot (under the old minimap) from several
-        -- code paths: put it back whenever its anchor is not our holder any more
+        -- code paths (its own layout runs on every tracker update, e.g. each looted item): put it back
+        -- right away. Waiting for the next frame drew it one frame at Blizzard's spot = flicker. In combat
+        -- place() still queues itself until combat ends.
         for _, m in ipairs({ "SetPoint", "ClearAllPoints" }) do
             if type(f[m]) == "function" then
                 pcall(hooksecurefunc, f, m, function()
-                    if started and not placing and cfg().enabled then requestPlace() end
+                    if started and not placing and cfg().enabled then
+                        reanchors = reanchors + 1
+                        xpcall(place, geterrorhandler())
+                    end
                 end)
             end
         end
