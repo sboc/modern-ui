@@ -285,8 +285,6 @@ local function itemDiet(link, classID, subClassID)
             if (" " .. name .. " "):find("%A" .. w .. "s?%A") then return d[1] end
         end
     end
-    local tradeGoods = (Enum and Enum.ItemClass and Enum.ItemClass.Tradegoods) or 7
-    if classID == tradeGoods and subClassID == 8 then return "meat" end   -- raw meat (Trade Goods > Meat)
 end
 
 -- uncooked fish ("Raw Sagefish"): a cooking ingredient, never picked for the pet food or the food macro
@@ -432,15 +430,16 @@ function K:Scan()
                 if diets and not raw then
                     local diet = itemDiet(link, classID, subClassID)
                     local consumable = (Enum and Enum.ItemClass and Enum.ItemClass.Consumable) or 0
-                    -- cooked food must be real food (not a drink or potion); raw meat has no tooltip restore line
-                    local edible = diet and diets[diet] and (classID ~= consumable or (info and info.food and not info.healthpot))
+                    -- only the bags' "Food & drink" items (Consumable > Food & Drink), and of those only food (not a
+                    -- drink or potion): trade goods (Clam Meat, Murloc Eye, raw meat) are never fed
+                    local edible = diet and diets[diet] and classID == consumable and subClassID == 5
+                        and info and info.food and not info.healthpot
                     if edible then
                         local minLevel = itemMinLevel(link)
                         if not minLevel then pending = true end
                         minLevel = minLevel or 0
                         if minLevel <= playerLevel then
-                            local pinfo = info or { healthAmt = 0, manaAmt = 0, cats = {} }
-                            local s = petScore(pinfo, ranks.food, minLevel)
+                            local s = petScore(info, ranks.food, minLevel)
                             if better(s, bestScore.petfood) then
                                 bestScore.petfood = s
                                 best.petfood = { itemID = id, link = link }
