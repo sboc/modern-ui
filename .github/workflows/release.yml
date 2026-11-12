@@ -4,6 +4,7 @@ name: Release
 # published to CurseForge (and as a GitHub release) with a changelog of the
 # commits since the previous tag.
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -39,7 +40,7 @@ jobs:
 
       - name: Package and upload
         env:
-          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          CF_API_KEY: ${{ secrets.MODERNUI }}
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
