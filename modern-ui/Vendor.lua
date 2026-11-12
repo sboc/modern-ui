@@ -316,19 +316,25 @@ function V:DepositTradeGoods()
     step()
 end
 
-local depositButton
-local function createDepositButton()
-    local bank = _G.BankFrame
-    if depositButton or not bank then return end
-    depositButton = ns.UI.Button(bank, "Deposit", 70, 20, function() V:DepositTradeGoods() end)
-    depositButton:SetPoint("TOPRIGHT", bank, "BOTTOMRIGHT", 0, -2)
-    depositButton:HookScript("OnEnter", function(self)
+-- also used by the grouped bank window (CustomBags.lua)
+function V:CreateDepositButton(parent, w, h)
+    local b = ns.UI.Button(parent, "Deposit", w or 70, h or 20, function() V:DepositTradeGoods() end)
+    b:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Deposit trade goods", 1, 1, 1)
         GameTooltip:AddLine("Moves all trade goods from your bags into the open bank tab.", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
-    depositButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
+local depositButton
+local function createDepositButton()
+    local bank = _G.BankFrame
+    if depositButton or not bank then return end
+    depositButton = V:CreateDepositButton(bank, 70, 20)
+    depositButton:SetPoint("TOPRIGHT", bank, "BOTTOMRIGHT", 0, -2)
 end
 
 -- Alt+click an item in a bag toggles its protection

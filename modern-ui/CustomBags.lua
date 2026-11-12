@@ -2,10 +2,11 @@ local ADDON, ns = ...
 local UI = ns.UI
 local BW = ns.BagWindows
 
--- Grouped bag window: one window that replaces Blizzard's bag windows and sorts the items into labeled sections
--- (new items, quest, equipment, food, potions, ...). Every item is a real Blizzard item button tied to its real bag and
--- slot, so click / use / split / drag / tooltips / cooldowns behave exactly like the default bags. Sections come from the
--- item class; items can be moved into any section (or into your own sections) by dragging them onto a section header.
+-- Grouped bag windows: one window that replaces Blizzard's bag windows and one that replaces the bank window, both
+-- sorting the items into labeled sections (new items, quest, equipment, food, potions, ...). Every item is a real
+-- Blizzard item button tied to its real bag and slot, so click / use / split / drag / tooltips / cooldowns behave
+-- exactly like the default bags. Sections come from the item class; items can be moved into any section (or into
+-- your own sections) by dragging them onto a section header. Sections and assignments are shared by both windows.
 -- Buttons cannot be moved or shown in combat, so layout changes made in combat wait until it ends.
 local CB = ns:NewModule("custombags")
 ns.CustomBags = CB
@@ -48,6 +49,33 @@ local function inRange(id)
     return type(id) == "number" and id >= first and id <= last
 end
 
+local function playerBags()
+    local list = {}
+    local first, last = bagRange()
+    for bag = first, last do list[#list + 1] = bag end
+    return list
+end
+
+local BANK = BANK_CONTAINER or (Enum and Enum.BagIndex and Enum.BagIndex.Bank) or -1
+
+-- Character bank containers: the old bank (main slots plus bank bags) and / or the bank tabs, whichever this client
+-- has; a container it does not have reports 0 slots and adds nothing. The warband bank stays Blizzard's.
+local function bankBags()
+    local list, seen = {}, {}
+    local E = Enum and Enum.BagIndex
+    local account = E and E.AccountBankTab_1
+    local _, last = bagRange()
+    local function add(id)
+        if type(id) ~= "number" or seen[id] or (id >= 0 and id <= last) or (account and id >= account) then return end
+        seen[id] = true
+        list[#list + 1] = id
+    end
+    add(BANK)
+    if E then for i = 1, 6 do add(E["CharacterBankTab_" .. i]) end end
+    for i = 1, NUM_BANKBAGSLOTS or 0 do add(last + i) end
+    return list
+end
+
 local function numSlots(bag)
     local fn = (C_Container and C_Container.GetContainerNumSlots) or GetContainerNumSlots
     return fn and fn(bag) or 0
@@ -60,7 +88,7 @@ local FAMILY_LABEL = {
     [2048] = "Unused", [4096] = "Vanity pets bag",
 }
 
-local function bagKind(bag)
+local function bagKind(bag, plain)
     local reagent = Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag or 5
     if (NUM_REAGENTBAG_SLOTS or 0) > 0 and bag == reagent then return "reagent", "Reagent bag", 1000 end
     local fn = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
@@ -70,7 +98,7 @@ local function bagKind(bag)
             return "f" .. family, FAMILY_LABEL[family] or "Special bag", family
         end
     end
-    return "bag", "Bag", 0
+    return "bag", plain, 0
 end
 
 local function itemInfo(bag, slot)
@@ -80,12 +108,8 @@ local function itemInfo(bag, slot)
     if ok and type(info) == "table" then return info end
 end
 
-local frame, content, footMoney, footFree, searchBox
-local buttons, bagFrames, headers = {}, {}, {}
-local lastSig
 local dragging = false
-local search = ""
-local refreshQueued = false
+local windows = {}
 
 ----------------------------------------------------------------------
 -- Sections
@@ -139,13 +163,24 @@ local function categoryOf(e)
     return CLASS_SECTION[classID] or "MISC"
 end
 
+-- every window shows the shared sections, so a change to them redraws all
+local function refreshAll()
+    for _, w in ipairs(windows) do
+        w.lastSig = nil
+        w:Refresh()
+    end
+end
+
+local function requestAll()
+    for _, w in ipairs(windows) do w:RequestRefresh() end
+end
+
 ----------------------------------------------------------------------
 -- Items
 ----------------------------------------------------------------------
-local function gather()
+local function gather(w)
     local entries, empties = {}, {}
-    local first, last = bagRange()
-    for bag = first, last do
+    for _, bag in ipairs(w.spec.bags()) do
         for slot = 1, numSlots(bag) do
             local e = { bag = bag, slot = slot }
             local info = itemInfo(bag, slot)
@@ -175,13 +210,13 @@ local function sortItems(a, b)
     return a.slot < b.slot
 end
 
-local function bagFrame(bag)
-    local f = bagFrames[bag]
+local function bagFrame(w, bag)
+    local f = w.bagFrames[bag]
     if not f then
-        f = CreateFrame("Frame", "ModernUIBagContainer" .. bag, content)
+        f = CreateFrame("Frame", "ModernUIBagContainer" .. bag, w.content)
         f:SetID(bag)
-        f:SetAllPoints(content)
-        bagFrames[bag] = f
+        f:SetAllPoints(w.content)
+        w.bagFrames[bag] = f
     end
     return f
 end
@@ -214,7 +249,7 @@ local function setQuality(btn, quality)
     if BW and BW.SyncQuality then BW.SyncQuality(btn) end
 end
 
-local function updateButton(btn, e)
+local function updateButton(w, btn, e)
     local info = e.info
     local icon = info and info.iconFileID
     if SetItemButtonTexture then
@@ -234,7 +269,7 @@ local function updateButton(btn, e)
     end
     if info then updateCooldown(btn, e.bag, e.slot) elseif btn.Cooldown then pcall(btn.Cooldown.Clear, btn.Cooldown) end
     local dim = false
-    if search ~= "" and info then dim = not (e.name:lower():find(search, 1, true)) end
+    if w.search ~= "" and info then dim = not (e.name:lower():find(w.search, 1, true)) end
     btn:SetAlpha(dim and 0.25 or 1)
 end
 
@@ -248,13 +283,21 @@ local function showFreeTip(btn)
     end)
 end
 
--- extra tooltip line on items in the grouped window: which bag holds it
+-- extra tooltip line on items in the grouped windows: which bag holds it
 local function bagLabel(bag)
+    if bag == BANK then return "Bank" end
     local fn = (C_Container and C_Container.GetBagName) or GetBagName
     local ok, name = pcall(fn, bag)
     if not ok or type(name) ~= "string" or isSecret(name) or name == "" then name = nil end
     if bag == 0 then return name or "Backpack" end
-    return "Bag " .. bag .. (name and (": " .. name) or "")
+    local suffix = name and (": " .. name) or ""
+    local _, last = bagRange()
+    if bag > last then
+        local tab1 = Enum and Enum.BagIndex and Enum.BagIndex.CharacterBankTab_1
+        if tab1 and bag >= tab1 then return "Bank tab " .. (bag - tab1 + 1) .. suffix end
+        return "Bank bag " .. (bag - last) .. suffix
+    end
+    return "Bag " .. bag .. suffix
 end
 
 if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
@@ -266,10 +309,23 @@ if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and
     end)
 end
 
-local function createButton(bag, slot)
+local function itemTooltip(btn, bag, slot)
+    pcall(function()
+        GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+        -- the old bank's main slots are inventory slots on older clients
+        if bag == BANK and BankButtonIDToInvSlotID then
+            GameTooltip:SetInventoryItem("player", BankButtonIDToInvSlotID(slot))
+        else
+            GameTooltip:SetBagItem(bag, slot)
+        end
+        GameTooltip:Show()
+    end)
+end
+
+local function createButton(w, bag, slot)
     if InCombatLockdown() then return end
     local name = "ModernUIBagItem" .. bag .. "_" .. slot
-    local parent = bagFrame(bag)
+    local parent = bagFrame(w, bag)
     local ok, btn = pcall(CreateFrame, "ItemButton", name, parent, "ContainerFrameItemButtonTemplate")
     if not ok or not btn then
         ok, btn = pcall(CreateFrame, "Button", name, parent, "ContainerFrameItemButtonTemplate")
@@ -295,24 +351,18 @@ local function createButton(bag, slot)
         C_Timer.After(0, function()
             if not self:IsMouseOver() then return end
             if self.molFreeLabel then showFreeTip(self) return end
-            if not (GameTooltip:IsShown() and GameTooltip:GetOwner() == self) then
-                pcall(function()
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:SetBagItem(bag, slot)
-                    GameTooltip:Show()
-                end)
-            end
+            if not (GameTooltip:IsShown() and GameTooltip:GetOwner() == self) then itemTooltip(self, bag, slot) end
             if C_NewItems and C_NewItems.RemoveNewItem then pcall(C_NewItems.RemoveNewItem, bag, slot) end
         end)
     end)
-    buttons[bag] = buttons[bag] or {}
-    buttons[bag][slot] = btn
+    w.buttons[bag] = w.buttons[bag] or {}
+    w.buttons[bag][slot] = btn
     return btn
 end
 
-local function getButton(bag, slot)
-    local t = buttons[bag]
-    return (t and t[slot]) or createButton(bag, slot)
+local function getButton(w, bag, slot)
+    local t = w.buttons[bag]
+    return (t and t[slot]) or createButton(w, bag, slot)
 end
 
 ----------------------------------------------------------------------
@@ -331,16 +381,14 @@ local function dropOnHeader(h)
             for _, n in ipairs(cfg().sections) do if n == text then exists = true end end
             if not exists then table.insert(cfg().sections, text) end
             cfg().pins[id] = customKey(text)
-            lastSig = nil
-            CB:Refresh()
+            refreshAll()
         end)
     elseif h.kind == "auto" then
         cfg().pins[id] = nil
     else
         cfg().pins[id] = h.key
     end
-    lastSig = nil
-    CB:Refresh()
+    refreshAll()
     return true
 end
 
@@ -353,12 +401,11 @@ local function deleteSection(key)
         if k == key then cfg().pins[id] = nil end
     end
     cfg().collapsed[key] = nil
-    lastSig = nil
-    CB:Refresh()
+    refreshAll()
 end
 
-local function makeHeader(i)
-    local h = CreateFrame("Button", nil, content)
+local function makeHeader(w, i)
+    local h = CreateFrame("Button", nil, w.content)
     h:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     h.bg = h:CreateTexture(nil, "BACKGROUND")
     h.bg:SetAllPoints()
@@ -377,25 +424,25 @@ local function makeHeader(i)
                 function() deleteSection(self.key) end)
         elseif mouse == "LeftButton" then
             cfg().collapsed[self.key] = not cfg().collapsed[self.key] or nil
-            lastSig = nil
-            CB:Refresh()
+            refreshAll()
         end
     end)
-    headers[i] = h
+    w.headers[i] = h
     return h
 end
 
 ----------------------------------------------------------------------
 -- Layout
 ----------------------------------------------------------------------
-local function fitScale(height)
+local function fitScale(frame, height)
     local avail = UIParent:GetHeight() * 0.92
     local s = math.min(1, avail / math.max(height, 1))
     if math.abs(frame:GetScale() - s) > 0.005 then frame:SetScale(s) end
 end
 
-local function layout(groups, freeGroup)
+local function layout(w, groups, freeGroup)
     local c = cfg()
+    local content = w.content
     local size, cols = c.slotSize, c.columns
     local step = size + GAP
     local width = cols * step - GAP
@@ -405,7 +452,7 @@ local function layout(groups, freeGroup)
 
     local function header(key, label, count, kind)
         hi = hi + 1
-        local h = headers[hi] or makeHeader(hi)
+        local h = w.headers[hi] or makeHeader(w, hi)
         h.key, h.kind = key, kind
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
@@ -422,7 +469,7 @@ local function layout(groups, freeGroup)
 
     local function place(items)
         for i, e in ipairs(items) do
-            local btn = getButton(e.bag, e.slot)
+            local btn = getButton(w, e.bag, e.slot)
             if btn then
                 local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
                 btn:ClearAllPoints()
@@ -453,21 +500,21 @@ local function layout(groups, freeGroup)
         header("AUTO", "Automatic (drop an item here to reset it)", nil, "auto")
     end
 
-    for _, t in pairs(buttons) do
+    for _, t in pairs(w.buttons) do
         for _, btn in pairs(t) do
             if not used[btn] then btn:Hide() end
         end
     end
-    for i = hi + 1, #headers do headers[i]:Hide() end
+    for i = hi + 1, #w.headers do w.headers[i]:Hide() end
 
     content:SetSize(width, math.max(y, 1))
-    local w = math.max(width + 2 * PAD, 250)
-    local h = y + TOP_H + FOOT_H + PAD
-    frame:SetSize(w, h)
-    fitScale(h)
+    local fw = math.max(width + 2 * PAD, w.spec.minWidth or 250)
+    local fh = y + TOP_H + FOOT_H + PAD
+    w.frame:SetSize(fw, fh)
+    fitScale(w.frame, fh)
 end
 
-local function buildGroups(entries, empties)
+local function buildGroups(w, entries, empties)
     local byKey = {}
     for _, e in ipairs(entries) do
         local k = categoryOf(e)
@@ -492,7 +539,7 @@ local function buildGroups(entries, empties)
     -- Kinds: normal bags, quiver / ammo, reagent bag, profession bags. Regular bags first (they take any item).
     local kinds, list = {}, {}
     for _, e in ipairs(empties) do
-        local kind, label, order = bagKind(e.bag)
+        local kind, label, order = bagKind(e.bag, w.spec.slotLabel)
         local k = kinds[kind]
         if not k then
             k = { kind = kind, label = label, order = order, items = { e }, total = 0 }
@@ -534,40 +581,55 @@ local function moneyText(copper)
     return string.format("|cffffd700%d|rg |cffc7c7cf%d|rs |cffeda55f%d|rc", g, sv, cp)
 end
 
-function CB:Refresh()
-    if not frame or not frame:IsShown() then return end
-    local entries, empties = gather()
+----------------------------------------------------------------------
+-- Window
+----------------------------------------------------------------------
+local Window = {}
+Window.__index = Window
+
+local function newWindow(spec)
+    local w = setmetatable({ spec = spec, buttons = {}, bagFrames = {}, headers = {}, search = "",
+                             refreshQueued = false }, Window)
+    windows[#windows + 1] = w
+    return w
+end
+
+function Window:IsOpen() return self.frame and self.frame:IsShown() or false end
+
+function Window:Refresh()
+    if not self:IsOpen() then return end
+    local entries, empties = gather(self)
     local combat = InCombatLockdown()
 
     -- make sure every slot has a button (only possible out of combat)
     if not combat then
-        for _, e in ipairs(entries) do getButton(e.bag, e.slot) end
-        for _, e in ipairs(empties) do getButton(e.bag, e.slot) end
+        for _, e in ipairs(entries) do getButton(self, e.bag, e.slot) end
+        for _, e in ipairs(empties) do getButton(self, e.bag, e.slot) end
     end
 
-    local groups, free = buildGroups(entries, empties)
+    local groups, free = buildGroups(self, entries, empties)
     local sig = signature(groups, free)
-    if sig ~= lastSig then
+    if sig ~= self.lastSig then
         if combat then
-            ns:AfterCombat("custombags", function() lastSig = nil CB:Refresh() end)
+            ns:AfterCombat("custombags-" .. self.spec.key, function() self.lastSig = nil self:Refresh() end)
         else
-            lastSig = sig
-            layout(groups, free)
+            self.lastSig = sig
+            layout(self, groups, free)
         end
     end
 
     for _, e in ipairs(entries) do
-        local btn = buttons[e.bag] and buttons[e.bag][e.slot]
+        local btn = self.buttons[e.bag] and self.buttons[e.bag][e.slot]
         if btn then
             btn.molFreeLabel = nil
-            pcall(updateButton, btn, e)
+            pcall(updateButton, self, btn, e)
         end
     end
     for _, e in ipairs(empties) do
-        local btn = buttons[e.bag] and buttons[e.bag][e.slot]
+        local btn = self.buttons[e.bag] and self.buttons[e.bag][e.slot]
         if btn then
             btn.molFreeLabel = nil
-            pcall(updateButton, btn, e)
+            pcall(updateButton, self, btn, e)
             if free and SetItemButtonCount then
                 for _, fg in ipairs(free) do
                     if fg.items[1] == e then
@@ -580,34 +642,33 @@ function CB:Refresh()
     end
 
     local total = #entries + #empties
-    footFree:SetText(string.format("%d / %d", #entries, total))
-    footMoney:SetText(moneyText(GetMoney and GetMoney() or 0))
+    self.footFree:SetText(string.format("%d / %d", #entries, total))
+    if self.spec.money then self.footMoney:SetText(moneyText(GetMoney and GetMoney() or 0)) end
 end
 
-local function requestRefresh()
-    if refreshQueued or not frame or not frame:IsShown() then return end
-    refreshQueued = true
+function Window:RequestRefresh()
+    if self.refreshQueued or not self:IsOpen() then return end
+    self.refreshQueued = true
     C_Timer.After(0, function()
-        refreshQueued = false
-        CB:Refresh()
+        self.refreshQueued = false
+        self:Refresh()
     end)
 end
 
-----------------------------------------------------------------------
--- Window
-----------------------------------------------------------------------
-local function savePosition()
-    local point, _, rel, x, y = frame:GetPoint()
-    if point then cfg().position = { point = point, rel = rel, x = x, y = y } end
+function Window:SavePosition()
+    local point, _, rel, x, y = self.frame:GetPoint()
+    if point then cfg()[self.spec.posKey] = { point = point, rel = rel, x = x, y = y } end
 end
 
-local function applyPosition()
-    local p = cfg().position
-    frame:ClearAllPoints()
+function Window:ApplyPosition()
+    local p = cfg()[self.spec.posKey]
+    local f = self.frame
+    f:ClearAllPoints()
     if p then
-        frame:SetPoint(p.point, UIParent, p.rel, p.x, p.y)
+        f:SetPoint(p.point, UIParent, p.rel, p.x, p.y)
     else
-        frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -70, 110)
+        local d = self.spec.defaultPos
+        f:SetPoint(d[1], UIParent, d[1], d[2], d[3])
     end
 end
 
@@ -617,53 +678,56 @@ local function sound(kind)
     end)
 end
 
-local function build()
-    if frame then return true end
+function Window:Build()
+    if self.frame then return true end
     if InCombatLockdown() then return false end
-    frame = UI.Box(UIParent, { 0.04, 0.04, 0.05, 0.92 })
-    _G.ModernUIBagFrame = frame
-    table.insert(UISpecialFrames, "ModernUIBagFrame")
+    local spec = self.spec
+    local frame = UI.Box(UIParent, { 0.04, 0.04, 0.05, ns.db.bagwindows.bgAlpha or 0.92 })
+    self.frame = frame
+    _G[spec.name] = frame
+    table.insert(UISpecialFrames, spec.name)
     frame:SetFrameStrata("DIALOG")
     frame:SetToplevel(true)
     frame:EnableMouse(true)
     frame:SetMovable(true)
     frame:SetClampedToScreen(true)
     frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    frame:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        savePosition()
+    frame:SetScript("OnDragStart", function(f) f:StartMoving() end)
+    frame:SetScript("OnDragStop", function(f)
+        f:StopMovingOrSizing()
+        self:SavePosition()
     end)
     frame:SetScript("OnShow", function()
-        sound("open")
-        lastSig = nil
-        CB:Refresh()
+        if spec.sound then sound("open") end
+        self.lastSig = nil
+        self:Refresh()
     end)
     frame:SetScript("OnHide", function()
-        sound("close")
-        if searchBox then searchBox:ClearFocus() end
-        if C_NewItems and C_NewItems.ClearAll then pcall(C_NewItems.ClearAll) end
+        if spec.sound then sound("close") end
+        if self.searchBox then self.searchBox:ClearFocus() end
+        if spec.onHide then spec.onHide() end
     end)
     frame:Hide()
-    applyPosition()
+    self:ApplyPosition()
 
-    local title = UI.Text(frame, "Bags", "GameFontNormalLarge")
+    local title = UI.Text(frame, spec.title, "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", PAD + 2, -8)
 
     local close = UI.Button(frame, "X", 22, 20, function() frame:Hide() end)
     close:SetPoint("TOPRIGHT", -6, -6)
-    local sort = UI.Button(frame, "Sort", 46, 20, function()
-        pcall(function()
-            if C_Container and C_Container.SortBags then C_Container.SortBags() elseif SortBags then SortBags() end
-        end)
-    end)
+    local sort = UI.Button(frame, "Sort", 46, 20, function() pcall(spec.sort) end)
     sort:SetPoint("RIGHT", close, "LEFT", -4, 0)
-    if ns.Vendor and ns.Vendor.CreateTrashButton then
-        local trash = ns.Vendor:CreateTrashButton(frame, 46, 20)
-        trash:SetPoint("RIGHT", sort, "LEFT", -4, 0)
+    local left = sort
+    for _, make in ipairs(spec.buttons or {}) do
+        local b = make(frame)
+        if b then
+            b:SetPoint("RIGHT", left, "LEFT", -4, 0)
+            left = b
+        end
     end
 
-    searchBox = CreateFrame("EditBox", nil, frame)
+    local searchBox = CreateFrame("EditBox", nil, frame)
+    self.searchBox = searchBox
     searchBox:SetFontObject("GameFontHighlight")
     pcall(searchBox.SetFont, searchBox, ns.DEFAULT_FONT, 13, "")
     searchBox:SetAutoFocus(false)
@@ -677,34 +741,170 @@ local function build()
     UI.AddBorder(searchBox, 1, 0, 0, 0, 1)
     searchBox.hint = UI.Text(searchBox, "Search", "GameFontDisable", "LEFT")
     searchBox.hint:SetPoint("LEFT", 6, 0)
-    searchBox:SetScript("OnEscapePressed", function(self) self:SetText("") self:ClearFocus() end)
-    searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    searchBox:SetScript("OnTextChanged", function(self)
-        search = (self:GetText() or ""):lower()
-        self.hint:SetShown(search == "")
-        CB:Refresh()
+    searchBox:SetScript("OnEscapePressed", function(b) b:SetText("") b:ClearFocus() end)
+    searchBox:SetScript("OnEnterPressed", function(b) b:ClearFocus() end)
+    searchBox:SetScript("OnTextChanged", function(b)
+        self.search = (b:GetText() or ""):lower()
+        b.hint:SetShown(self.search == "")
+        self:Refresh()
     end)
 
-    content = CreateFrame("Frame", nil, frame)
+    local content = CreateFrame("Frame", nil, frame)
+    self.content = content
     content:SetPoint("TOPLEFT", PAD, -TOP_H)
     content:SetSize(10, 10)
 
-    footMoney = UI.Text(frame, "", "GameFontHighlight", "LEFT")
-    footMoney:SetPoint("BOTTOMLEFT", PAD + 2, 8)
-    footFree = UI.Text(frame, "", "GameFontHighlight", "RIGHT")
-    footFree:SetPoint("BOTTOMRIGHT", -PAD - 2, 8)
-    footFree:SetTextColor(unpack(UI.colors.dim))
+    self.footMoney = UI.Text(frame, "", "GameFontHighlight", "LEFT")
+    self.footMoney:SetPoint("BOTTOMLEFT", PAD + 2, 8)
+    self.footFree = UI.Text(frame, "", "GameFontHighlight", "RIGHT")
+    self.footFree:SetPoint("BOTTOMRIGHT", -PAD - 2, 8)
+    self.footFree:SetTextColor(unpack(UI.colors.dim))
     return true
+end
+
+function Window:Open()
+    if not self:Build() then return false end
+    self.frame:Show()
+    return true
+end
+
+function Window:Close()
+    if self.frame then self.frame:Hide() end
+end
+
+----------------------------------------------------------------------
+-- The two windows
+----------------------------------------------------------------------
+local bags = newWindow({
+    key = "bags", name = "ModernUIBagFrame", title = "Bags", posKey = "position", defaultPos = { "BOTTOMRIGHT", -70, 110 },
+    bags = playerBags, slotLabel = "Bag", money = true, sound = true,
+    sort = function()
+        if C_Container and C_Container.SortBags then C_Container.SortBags() elseif SortBags then SortBags() end
+    end,
+    buttons = { function(parent) return ns.Vendor and ns.Vendor.CreateTrashButton and ns.Vendor:CreateTrashButton(parent, 46, 20) end },
+    onHide = function() if C_NewItems and C_NewItems.ClearAll then pcall(C_NewItems.ClearAll) end end,
+})
+
+-- Bank: Blizzard's bank window has to stay shown while the bank is open (hiding it ends the visit), so it is faded
+-- and parked off screen instead. "Blizzard" in the title bar brings it back for this visit (buying bank tabs or
+-- slots, the warband bank, ...).
+local bankOpen = false     -- at a banker
+local blizzBank = false    -- Blizzard's bank window wanted for this visit
+local parked               -- Blizzard's bank window anchors before it was parked
+
+local function bankActive() return CB.active and cfg().bank ~= false and not blizzBank end
+
+local function parkBankFrame()
+    local f = _G.BankFrame
+    if not (f and f:IsShown() and bankOpen and bankActive()) then return end
+    if not parked then
+        parked = { clamped = f:IsClampedToScreen() }
+        for i = 1, f:GetNumPoints() do parked[i] = { f:GetPoint(i) } end
+    end
+    f:SetAlpha(0)
+    f:SetClampedToScreen(false)
+    f:ClearAllPoints()
+    f:SetPoint("TOPRIGHT", UIParent, "TOPLEFT", -5000, 0)
+end
+
+local function unparkBankFrame()
+    local f = _G.BankFrame
+    local p = parked
+    parked = nil
+    if not (f and p) then return end
+    f:ClearAllPoints()
+    for _, pt in ipairs(p) do f:SetPoint(unpack(pt)) end
+    f:SetClampedToScreen(p.clamped)
+    f:SetAlpha(1)
+end
+
+local function closeBank()
+    if C_Bank and C_Bank.CloseBankFrame then pcall(C_Bank.CloseBankFrame)
+    elseif CloseBankFrame then pcall(CloseBankFrame)
+    elseif _G.BankFrame and HideUIPanel then pcall(HideUIPanel, _G.BankFrame) end
+end
+
+local bank
+local function showBlizzardBank()
+    blizzBank = true
+    unparkBankFrame()
+    bank:Close()
+end
+
+local function blizzardButton(parent)
+    local b = UI.Button(parent, "Blizzard", 62, 20, showBlizzardBank)
+    b:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Blizzard's bank window", 1, 1, 1)
+        GameTooltip:AddLine("For buying bank slots or tabs and the warband bank. Back to this window next visit.", 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end)
+    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
+bank = newWindow({
+    key = "bank", name = "ModernUIBankFrame", title = "Bank", posKey = "bankPosition", defaultPos = { "TOPLEFT", 40, -120 },
+    bags = bankBags, slotLabel = "Bank", minWidth = 300,
+    sort = function()
+        if C_Container and C_Container.SortBank and Enum and Enum.BankType then C_Container.SortBank(Enum.BankType.Character)
+        elseif C_Container and C_Container.SortBankBags then C_Container.SortBankBags()
+        elseif SortBankBags then SortBankBags() end
+    end,
+    buttons = {
+        function(parent) return ns.Vendor and ns.Vendor.CreateDepositButton and ns.Vendor:CreateDepositButton(parent, 60, 20) end,
+        blizzardButton,
+    },
+    -- closing this window (X, Escape) leaves the bank, unless Blizzard's window took over
+    onHide = function() if bankOpen and not blizzBank then closeBank() end end,
+})
+
+local function openBank()
+    if not (bankOpen and bankActive()) then return end
+    if bank:Open() then
+        parkBankFrame()
+    elseif _G.BankFrame then
+        -- buttons cannot be made in combat: Blizzard's window (faded on show) stays
+        _G.BankFrame:SetAlpha(1)
+    end
+end
+
+local function onBankOpened()
+    bankOpen, blizzBank = true, false
+    openBank()
+end
+
+local function onBankClosed()
+    bankOpen = false
+    unparkBankFrame()
+    bank:Close()
+    blizzBank = false
+end
+
+local bankHooked = false
+local function hookBankFrame()
+    local f = _G.BankFrame
+    if bankHooked or not (f and f.HookScript) then return end
+    bankHooked = true
+    -- fade at once (no flash), park once Blizzard's panel layout has placed it
+    f:HookScript("OnShow", function(self)
+        if bankOpen and bankActive() then
+            self:SetAlpha(0)
+            C_Timer.After(0, openBank)
+        end
+    end)
+    if type(_G.UpdateUIPanelPositions) == "function" then
+        hooksecurefunc("UpdateUIPanelPositions", function() if parked then parkBankFrame() end end)
+    end
 end
 
 -- Cursor carrying an item: show every section (and the "new section" drop target) so it can be dropped on one.
 local function onCursor()
-    if not (frame and frame:IsShown()) then return end
     local kind = GetCursorInfo()
     local now = kind == "item"
     if now ~= dragging then
         dragging = now
-        requestRefresh()
+        requestAll()
     end
 end
 
@@ -713,22 +913,16 @@ end
 ----------------------------------------------------------------------
 local installed = false
 
-function CB:IsOpen() return frame and frame:IsShown() or false end
-
-function CB:Open()
-    if not build() then return false end
-    frame:Show()
-    return true
-end
-
-function CB:Close()
-    if frame then frame:Hide() end
-end
+function CB:IsOpen() return bags:IsOpen() end
+function CB:Open() return bags:Open() end
+function CB:Close() bags:Close() end
 
 function CB:Toggle()
-    if CB:IsOpen() then CB:Close() return true end
-    return CB:Open()
+    if bags:IsOpen() then bags:Close() return true end
+    return bags:Open()
 end
+
+function CB:Refresh() refreshAll() end
 
 -- Post-hooks only: replacing Blizzard globals (OpenAllBags etc.) with addon
 -- functions taints the secure path that opens the bank / merchant / mail and
@@ -791,13 +985,13 @@ local function install()
             f:HookScript("OnShow", function() if CB.active then hideBlizzardBags() end end)
         end
     end
+    hookBankFrame()
 end
 
 function CB:Clear()
     if not ns.db then return end
     cfg().pins = {}
-    lastSig = nil
-    CB:Refresh()
+    refreshAll()
 end
 
 function CB:Apply()
@@ -807,21 +1001,28 @@ function CB:Apply()
         CB.active = true
     else
         CB.active = false
-        if frame and frame:IsShown() then frame:Hide() end
+        bags:Close()
     end
-    if frame then
-        frame.bg:SetColorTexture(0.04, 0.04, 0.05, ns.db.bagwindows.bgAlpha or 0.92)
-        lastSig = nil
-        CB:Refresh()
+    -- at the bank right now: switch to whichever bank window the settings ask for
+    if bankOpen then
+        if bankActive() then openBank()
+        elseif bank:IsOpen() or parked then showBlizzardBank() end
     end
+    for _, w in ipairs(windows) do
+        if w.frame then w.frame.bg:SetColorTexture(0.04, 0.04, 0.05, ns.db.bagwindows.bgAlpha or 0.92) end
+    end
+    refreshAll()
 end
 
 function CB:Init()
     for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED", "BAG_UPDATE_COOLDOWN",
-                         "PLAYER_MONEY", "BAG_NEW_ITEMS_UPDATED" }) do
-        ns:On(e, requestRefresh)
+                         "PLAYER_MONEY", "BAG_NEW_ITEMS_UPDATED", "PLAYERBANKSLOTS_CHANGED",
+                         "PLAYERBANKBAGSLOTS_CHANGED", "BANK_TABS_CHANGED", "BANK_TAB_SETTINGS_UPDATED" }) do
+        ns:On(e, requestAll)
     end
     ns:On("CURSOR_CHANGED", onCursor)
+    ns:On("BANKFRAME_OPENED", onBankOpened)
+    ns:On("BANKFRAME_CLOSED", onBankClosed)
     if cfg().enabled then
         install()
         CB.active = true
