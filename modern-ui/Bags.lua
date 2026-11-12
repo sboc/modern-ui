@@ -142,6 +142,20 @@ end
 BW.StyleSlot = styleSlot
 BW.SyncQuality = syncQuality
 
+-- Trash button on (Vendor.lua): every slot but the cheap gray stacks is dimmed. Alpha is only touched while that
+-- is on, and put back once after.
+local function markSlot(btn, marking)
+    if not (marking or btn.molDimmed) then return end
+    local dim = false
+    if marking then
+        local parent = btn:GetParent()
+        local bag = btn.GetBagID and btn:GetBagID() or (parent and parent:GetID())
+        dim = not ns.Vendor:IsTrash(bag, btn:GetID())
+    end
+    btn.molDimmed = dim or nil
+    btn:SetAlpha(dim and 0.25 or 1)
+end
+
 local function restyleFrame(frame)
     local c = cfg()
     local bg = frame.molBG
@@ -159,7 +173,8 @@ local function restyleFrame(frame)
             pcall(region.SetAlpha, region, c.skin and 0 or 1)
         end
     end
-    eachItem(frame, function(btn) pcall(styleSlot, btn) end)
+    local marking = ns.Vendor and ns.Vendor.TrashShown and ns.Vendor:TrashShown() or false
+    eachItem(frame, function(btn) pcall(styleSlot, btn) pcall(markSlot, btn, marking) end)
 end
 
 -- Moving: drag a bag window by its background. Blizzard re-anchors the windows whenever one opens or
@@ -265,6 +280,8 @@ local function requestRestyle()
         end
     end)
 end
+
+BW.RequestRestyle = requestRestyle
 
 -- Bag windows sit on DIALOG; the loot window (opening clams, caches, ...) defaults to a lower strata and would
 -- open behind them. Lift it to the same strata and put it on top whenever it shows.

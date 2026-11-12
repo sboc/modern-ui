@@ -233,7 +233,7 @@ local function bagWindowOptions()
             local names = ns.Vendor and ns.Vendor.ProtectedNames and ns.Vendor.ProtectedNames() or {}
             return #names > 0 and table.concat(names, ", ") or "none"
         end)()),
-        Range("vendor.trashMax", "Trash button: delete gray items worth less than", 0, 100000, 100, function(v)
+        Range("vendor.trashMax", "Trash button: highlight gray items worth less than", 0, 100000, 100, function(v)
             if v <= 0 then return "off" end
             local g, sv = math.floor(v / 10000), math.floor(v / 100) % 100
             return (g > 0 and (g .. "g ") or "") .. (sv > 0 and (sv .. "s") or "")

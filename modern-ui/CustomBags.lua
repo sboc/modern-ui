@@ -174,6 +174,7 @@ end
 local function requestAll()
     for _, w in ipairs(windows) do w:RequestRefresh() end
 end
+CB.RequestAll = requestAll
 
 ----------------------------------------------------------------------
 -- Items
@@ -270,6 +271,11 @@ local function updateButton(w, btn, e)
     if info then updateCooldown(btn, e.bag, e.slot) elseif btn.Cooldown then pcall(btn.Cooldown.Clear, btn.Cooldown) end
     local dim = false
     if w.search ~= "" and info then dim = not (e.name:lower():find(w.search, 1, true)) end
+    -- Trash button on: only the cheap gray stacks stay bright
+    local V = ns.Vendor
+    if not dim and w.spec.key == "bags" and V and V.TrashShown and V:TrashShown() then
+        dim = not (info and V:IsTrash(e.bag, e.slot))
+    end
     btn:SetAlpha(dim and 0.25 or 1)
 end
 
