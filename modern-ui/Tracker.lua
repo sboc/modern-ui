@@ -161,16 +161,31 @@ end
 ----------------------------------------------------------------------
 -- Quest limit
 ----------------------------------------------------------------------
--- Blizzard's quest modules build the list of quests to draw in BuildQuestWatchInfos: the list is cut to the
--- configured count there (the quests stay tracked, they are just not drawn). The super tracked quest is always
--- kept. With an Azeroth Pilot Reloaded route running, the quests the route reaches next are the ones kept. Only hooked once a limit is set; 0 hands the full list back.
-local LIMIT_MODULES = { "CampaignQuestObjectiveTracker", "QuestObjectiveTracker" }   -- in drawing order
-local limitState = {}
+-- Nothing of Blizzard's is replaced or called into: a replaced tracker method taints every tracker update, and a
+-- tainted update errors in combat ("Auras cannot be accessed when secret while tainted"). The limit is applied
+-- through the quest watch API instead. Quests over the limit are untracked for real and remembered ("parked", per
+-- character); they are tracked again when a slot frees up, when the route reaches them, or when the limit is set
+-- to 0. What stays tracked, in order: the super tracked quest, quests the player tracked by hand (pinned), with
+-- an Azeroth Pilot Reloaded route running the quests the route reaches next, then the rest in the order they were
+-- tracked. Parked quests stay in the quest log.
+local trimQueued, trimming = false, false
+local ignoreUntil = 0   -- watch list events caused by our own changes are not the player's doing
 local lastLimit = 0
+local lastTrim          -- what the last pass did (/mui tracker)
 
 local function limitMax()
     local n = cfg().maxQuests or 0
     return n > 0 and n or nil
+end
+
+-- per character: the settings profile can be shared between characters, quests are not
+local function charStore(key)
+    local guid = UnitGUID("player")
+    if type(guid) ~= "string" then return end
+    local c = cfg()
+    c[key] = c[key] or {}
+    c[key][guid] = c[key][guid] or {}
+    return c[key][guid]
 end
 
 -- Azeroth Pilot Reloaded: the quests the route needs next. Returns { [questID] = position } where position is the
@@ -198,116 +213,176 @@ local function routeRanks()
     if count > 0 then return ranks end
 end
 
--- The quests allowed in the tracker when a route runs: the super tracked quest, then the watched quests in the
--- order the route reaches them, then the rest in Blizzard's watch order. nil = no route, use the plain cut.
-local function routeAllowed(max)
-    if not (C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetQuestIDForQuestWatchIndex) then return end
-    local ranks = routeRanks()
-    if not ranks then return end
-    local sup = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID() or 0
-    local list = {}
-    for i = 1, C_QuestLog.GetNumQuestWatches() or 0 do
-        local id = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
-        if id then
-            local rank = (id == sup and 0) or ranks[id] or (1e6 + i)
-            list[#list + 1] = { id = id, rank = rank, order = i }
-        end
+local function inLog(id)
+    if C_QuestLog.IsOnQuest then return C_QuestLog.IsOnQuest(id) and true or false end
+    return C_QuestLog.GetLogIndexForQuestID ~= nil and C_QuestLog.GetLogIndexForQuestID(id) ~= nil
+end
+
+local function trimQuests()
+    local Q = C_QuestLog
+    if not (Q and Q.GetNumQuestWatches and Q.GetQuestIDForQuestWatchIndex and Q.AddQuestWatch and Q.RemoveQuestWatch) then
+        lastTrim = "quest watch API missing"
+        return
     end
-    if #list == 0 then return end
-    table.sort(list, function(a, b)
-        if a.rank ~= b.rank then return a.rank < b.rank end
-        return a.order < b.order
-    end)
-    local allowed = {}
-    for i = 1, math.min(max, #list) do allowed[list[i].id] = true end
-    return allowed
-end
-
-local drawnSig   -- what the last cut kept ("plain" without a route): a rebuild is only worth it when this changes
-
-local function allowedSig(allowed)
-    if not allowed then return "plain" end
-    local ids = {}
-    for id in pairs(allowed) do ids[#ids + 1] = id end
-    table.sort(ids)
-    return table.concat(ids, ",")
-end
-
-local function limitInfos(tracker, infos)
+    -- quest log not loaded yet: nothing can be told apart from "quest is gone"
+    if Q.GetNumQuestLogEntries and (Q.GetNumQuestLogEntries() or 0) == 0 then lastTrim = "quest log empty" return end
+    local parked, pinned = charStore("parkedQuests"), charStore("pinnedQuests")
+    if not (parked and pinned) then lastTrim = "no player GUID" return end
     local max = limitMax()
-    local state = limitState[tracker]
-    if not (max and type(infos) == "table") then
-        if state then state.shown = #(infos or {}) end
-        return infos
-    end
-    local allowed = routeAllowed(max)
-    state.mode = allowed and "route" or "plain"
-    drawnSig = allowedSig(allowed)
-    if allowed then
-        local out = {}
-        for _, info in ipairs(infos) do
-            if info.quest and allowed[info.quest:GetID()] then out[#out + 1] = info end
-        end
-        state.shown = #out
-        return out
-    end
-    -- quests already drawn by the modules before this one share the same budget
-    local used = 0
-    for _, name in ipairs(LIMIT_MODULES) do
-        local t = _G[name]
-        if t == tracker then break end
-        local st = t and limitState[t]
-        used = used + (st and st.shown or 0)
-    end
-    local budget = math.max(0, max - used)
-    if #infos <= budget then state.shown = #infos return infos end
-    local keep, n = {}, 0
-    local sup = budget > 0 and C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
-    if sup and sup ~= 0 then
-        for i, info in ipairs(infos) do
-            if info.quest and info.quest:GetID() == sup then keep[i] = true; n = 1; break end
+
+    -- candidates: what is tracked now (in the order it was tracked), then what we parked (oldest first)
+    local watched, list = {}, {}
+    for i = 1, Q.GetNumQuestWatches() or 0 do
+        local id = Q.GetQuestIDForQuestWatchIndex(i)
+        if id then
+            watched[id] = true
+            parked[id] = nil   -- tracked again by the player
+            list[#list + 1] = { id = id, order = i }
         end
     end
-    for i = 1, #infos do
-        if n >= budget then break end
-        if not keep[i] then keep[i] = true; n = n + 1 end
+    for id in pairs(pinned) do
+        if not watched[id] then pinned[id] = nil end
     end
-    local out = {}
-    for i, info in ipairs(infos) do
-        if keep[i] then out[#out + 1] = info end
+    local seq = 0
+    for id, s in pairs(parked) do
+        if inLog(id) then
+            list[#list + 1] = { id = id, order = 1e5 + s }
+            if s > seq then seq = s end
+        else
+            parked[id] = nil   -- turned in or abandoned
+        end
     end
-    state.shown = #out
-    return out
+
+    local keep = {}
+    if max then
+        local ok, ranks = pcall(routeRanks)
+        if not ok then ranks = nil end
+        local sup = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID() or 0
+        for _, it in ipairs(list) do
+            it.rank = (it.id == sup and 0) or (pinned[it.id] and 1) or (ranks and ranks[it.id] and 1 + ranks[it.id]) or 1e7
+        end
+        table.sort(list, function(a, b)
+            if a.rank ~= b.rank then return a.rank < b.rank end
+            return a.order < b.order
+        end)
+        for i = 1, math.min(max, #list) do keep[list[i].id] = true end
+    else
+        for _, it in ipairs(list) do keep[it.id] = true end   -- limit off: everything parked comes back
+    end
+
+    local removed, added = 0, 0
+    local auto = Enum and Enum.QuestWatchType and Enum.QuestWatchType.Automatic
+    trimming = true
+    for _, it in ipairs(list) do
+        if watched[it.id] and not keep[it.id] and pcall(Q.RemoveQuestWatch, it.id) then
+            seq = seq + 1
+            parked[it.id] = seq
+            removed = removed + 1
+        end
+    end
+    for _, it in ipairs(list) do
+        if keep[it.id] and not watched[it.id] then
+            local ok, res = pcall(Q.AddQuestWatch, it.id, auto)
+            if ok and res ~= false then
+                parked[it.id] = nil
+                added = added + 1
+            end
+        end
+    end
+    trimming = false
+    if removed + added > 0 then ignoreUntil = GetTime() + 1 end
+    lastTrim = string.format("limit=%s candidates=%d untracked=%d tracked=%d", tostring(max), #list, removed, added)
 end
 
-local function markLimitDirty(onlyIfChanged)
-    ns:AfterCombat("tracker_limit", function()
-        if onlyIfChanged then
-            -- every rebuild resizes the tracker (and APR re-attaches to it): skip it when the same quests stay
-            local max = limitMax()
-            local ok, allowed = pcall(routeAllowed, max or 0)
-            if max and ok and allowedSig(allowed) == drawnSig then return end
-        end
-        for _, name in ipairs(LIMIT_MODULES) do
-            local t = _G[name]
-            if t and limitState[t] and t.MarkDirty then pcall(t.MarkDirty, t) end
-        end
+local function requestTrim()
+    if trimQueued then return end
+    trimQueued = true
+    C_Timer.After(0.2, function()
+        trimQueued = false
+        ns:AfterCombat("tracker_trim", function()
+            local ok, err = pcall(trimQuests)
+            trimming = false
+            if not ok then lastTrim = "error: " .. tostring(err) end
+        end)
     end)
 end
 
--- the route moved on: the quests that are next change, so the cut has to be redone
+-- the player tracking / untracking a quest by hand (quest log, shift-click): a manual watch is pinned and stays
+-- until it is untracked, turned in or abandoned. Tracking on accept is an Automatic watch: not pinned.
+local function onWatchChanged(_, id, added)
+    if type(id) == "number" and not trimming and GetTime() > ignoreUntil then
+        local pinned = charStore("pinnedQuests")
+        if pinned then
+            local manual = Enum and Enum.QuestWatchType and Enum.QuestWatchType.Manual
+            local wt = added and C_QuestLog.GetQuestWatchType and C_QuestLog.GetQuestWatchType(id)
+            pinned[id] = (added and manual ~= nil and wt == manual) and true or nil
+        end
+    end
+    requestSkin()
+    requestTrim()
+end
+
+-- the route moved on: the quests that are next change
 local aprHooked = false
 local function hookRoute()
     local apr = _G.APR
     if aprHooked or not (apr and type(apr.SetRouteProgress) == "function") then return end
     aprHooked = true
     hooksecurefunc(apr, "SetRouteProgress", function()
-        if limitMax() then C_Timer.After(0, function() markLimitDirty(true) end) end
+        if limitMax() then requestTrim() end
     end)
 end
 
--- /mui tracker: what the route based cut sees and picks (errors are shown, not swallowed)
+-- Which fields of the tracker frames (and which globals its update reads) were last written by addon code:
+-- reading one of those taints Blizzard's update, and a tainted update errors on secret auras in combat.
+-- A healthy tracker lists only our own header lines (molLine), which Blizzard never reads.
+local TAINT_GLOBALS = {
+    "ShouldShowMawBuffs", "IsInJailersTower", "IsOnGroundFloorInJailersTower", "PlaySound", "SOUNDKIT",
+    "C_Scenario", "C_UnitAuras", "ObjectiveTrackerFrame", "ObjectiveTrackerManager", "ScenarioObjectiveTracker",
+    "EditModeManagerFrame", "GenerateClosure", "ipairs", "pairs", "math", "table",
+}
+local TAINT_MIXINS = {
+    "ObjectiveTrackerFrameMixin", "ObjectiveTrackerContainerMixin", "ObjectiveTrackerContainerHeaderMixin",
+    "ObjectiveTrackerModuleMixin", "ObjectiveTrackerModuleHeaderMixin", "ScenarioObjectiveTrackerMixin",
+    "EditModeSystemMixin",
+}
+
+local function taintScan()
+    local out = {}
+    local function check(label, t, k)
+        local ok, secure, who = pcall(issecurevariable, t, k)
+        if ok and not secure then out[#out + 1] = label .. " <- " .. tostring(who) end
+    end
+    local function scan(label, t)
+        if type(t) ~= "table" then return end
+        for k in pairs(t) do
+            if type(k) == "string" then check(label .. "." .. k, t, k) end
+        end
+    end
+    for _, name in ipairs(TAINT_GLOBALS) do check(name, _G, name) end
+    for _, name in ipairs(TAINT_MIXINS) do
+        check(name, _G, name)
+        scan(name, _G[name])
+    end
+    local function frame(label, f)
+        if type(f) ~= "table" then return end
+        scan(label, f)
+        scan(label .. ".Header", f.Header)
+        scan(label .. ".Header.MinimizeButton", type(f.Header) == "table" and f.Header.MinimizeButton or nil)
+    end
+    frame("ObjectiveTrackerFrame", _G.ObjectiveTrackerFrame)
+    eachTracker(function(t)
+        local ok, name = pcall(t.GetName, t)
+        frame(ok and name or tostring(t), t)
+    end)
+    return out
+end
+
 function TR:Debug()
+    local scan = taintScan()
+    cfg().taintScan = nil   -- (an earlier build kept the list in the settings)
+    ns:Print("addon-written tracker fields: " .. #scan)
+    for i = 1, math.min(#scan, 40) do ns:Print("  " .. scan[i]) end
     local apr = _G.APR
     ns:Print(string.format("limit=%s APR=%s route=%s PlayerID=%s hooked=%s",
         tostring(limitMax()), tostring(apr ~= nil), tostring(apr and apr.ActiveRoute), tostring(apr and apr.PlayerID),
@@ -324,49 +399,25 @@ function TR:Debug()
     local n = 0
     for _ in pairs(ranks or {}) do n = n + 1 end
     ns:Print("route quests ahead: " .. n)
-    for i = 1, (C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetNumQuestWatches() or 0) do
-        local id = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
-        ns:Print(string.format("  watch %d: %s (%s) route step %s", i, tostring(id),
+    local pinned, parked = charStore("pinnedQuests") or {}, charStore("parkedQuests") or {}
+    local function line(label, id)
+        ns:Print(string.format("  %s: %s (%s) route step %s%s", label, tostring(id),
             tostring(id and C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(id)),
-            tostring(ranks and id and ranks[id])))
+            tostring(ranks and id and ranks[id]), pinned[id] and " pinned" or ""))
     end
-    for _, name in ipairs(LIMIT_MODULES) do
-        local t = _G[name]
-        local st = t and limitState[t]
-        ns:Print(string.format("%s: exists=%s wrapped=%s mode=%s calls=%s in=%s shown=%s err=%s", name, tostring(t ~= nil),
-            tostring(st ~= nil), tostring(st and st.mode), tostring(st and st.calls), tostring(st and st.lastIn), tostring(st and st.shown),
-            tostring(st and st.lastErr)))
+    for i = 1, (C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetNumQuestWatches() or 0) do
+        line("watch " .. i, C_QuestLog.GetQuestIDForQuestWatchIndex(i))
     end
-    local max = limitMax()
-    if not max then return end
-    local ok2, allowed = pcall(routeAllowed, max)
-    if not ok2 then ns:Print("routeAllowed error: " .. tostring(allowed)) return end
-    local ids = {}
-    for id in pairs(allowed or {}) do ids[#ids + 1] = id end
-    ns:Print("allowed: " .. (allowed and table.concat(ids, ", ") or "nil (plain cut)"))
+    for id in pairs(parked) do line("parked", id) end
+    ns:Print("last limit pass: " .. tostring(lastTrim))
 end
 
 local function applyLimit()
     local max = limitMax() or 0
     if max > 0 then hookRoute() end
-    for _, name in ipairs(LIMIT_MODULES) do
-        local t = _G[name]
-        if t and type(t.BuildQuestWatchInfos) == "function" and not limitState[t] and max > 0 then
-            local state = { original = t.BuildQuestWatchInfos, shown = 0, calls = 0 }
-            limitState[t] = state
-            t.BuildQuestWatchInfos = function(self, ...)
-                local infos = state.original(self, ...)
-                local ok, out = pcall(limitInfos, self, infos)
-                state.calls = state.calls + 1
-                state.lastIn = type(infos) == "table" and #infos or tostring(infos)
-                state.lastErr = (not ok) and tostring(out) or nil
-                return ok and out or infos
-            end
-        end
-    end
     if max == lastLimit then return end
     lastLimit = max
-    markLimitDirty()
+    requestTrim()
 end
 
 ----------------------------------------------------------------------
@@ -434,13 +485,11 @@ local function wantedKey(rel, point, relPoint, x, y)
     return table.concat({ tostring(rel), point, relPoint, x, y, top, right }, "|")
 end
 
-local function place()
+local function placeNow()
     local f = _G.ObjectiveTrackerFrame
     if not f or not holder or not cfg().enabled then return end
-    ns:AfterCombat("tracker_place", function()
+    do
         local c = cfg()
-        -- every write from addon code taints the Blizzard frame's state, and its layout code reads that
-        -- back (in combat: secret auras -> "Auras cannot be accessed when secret while tainted"), so
         -- only write what actually changed
         local wantScale = c.scale * ns.db.general.scale
         if math.abs((f:GetScale() or 0) - wantScale) > 0.001 then ns.SetScale(f, wantScale) end
@@ -480,7 +529,22 @@ local function place()
         ns.Mover:Position("tracker")
         hookTrackers()
         requestSkin()
-    end)
+    end
+end
+
+-- Blizzard puts the tracker back at its default spot (under the default minimap) after every tracker update,
+-- also in combat (ManageFramePositions). The frame is only locked in combat while it holds a protected child
+-- (a quest item button): otherwise it is put back right away. A pass after combat always follows: APR does
+-- nothing in combat, so its attach to the tracker is redone then.
+local function place()
+    local f = _G.ObjectiveTrackerFrame
+    if not f or not holder or not cfg().enabled then return end
+    if InCombatLockdown() then
+        ns:AfterCombat("tracker_place", placeNow)
+        local ok, protected = pcall(f.IsProtected, f)
+        if not ok or protected then return end
+    end
+    placeNow()
 end
 
 function requestPlace()
@@ -529,7 +593,7 @@ function TR:Start()
         -- Blizzard re-anchors the tracker to its default spot (under the old minimap) from several
         -- code paths (its own layout runs on every tracker update, e.g. each looted item): put it back
         -- right away. Waiting for the next frame drew it one frame at Blizzard's spot = flicker. In combat
-        -- place() still queues itself until combat ends.
+        -- place() does the same unless the frame is locked (see place).
         for _, m in ipairs({ "SetPoint", "ClearAllPoints" }) do
             if type(f[m]) == "function" then
                 pcall(hooksecurefunc, f, m, function()
@@ -553,15 +617,18 @@ function TR:Start()
     end
     ns:On("EDIT_MODE_LAYOUTS_UPDATED", requestPlace)
     ns:On("PLAYER_ENTERING_WORLD", requestPlace)
-    -- APR sets up its route after Blizzard drew the tracker the first time: redo the cut once it has settled
+    -- also with the limit off: quests parked earlier come back. APR sets up its route a little after login:
+    -- redo the limit once it has settled
     ns:On("PLAYER_ENTERING_WORLD", function()
+        requestTrim()
         if not limitMax() then return end
         hookRoute()
-        for _, delay in ipairs({ 1, 3, 6 }) do C_Timer.After(delay, function() markLimitDirty(true) end) end
+        for _, delay in ipairs({ 1, 3, 6 }) do C_Timer.After(delay, requestTrim) end
     end)
     ns:On("PLAYER_LEVEL_UP", requestPlace)
     ns:On("QUEST_LOG_UPDATE", requestSkin)
-    ns:On("QUEST_WATCH_LIST_CHANGED", requestSkin)
+    ns:On("QUEST_WATCH_LIST_CHANGED", onWatchChanged)
+    ns:On("QUEST_REMOVED", requestTrim)
 end
 
 function TR:Apply()
