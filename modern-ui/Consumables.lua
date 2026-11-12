@@ -75,6 +75,10 @@ local CLASS_ARCHETYPE = {
     DEMONHUNTER = "melee_agi", MAGE = "caster", WARLOCK = "caster", PRIEST = "healer",
 }
 
+-- classes with one archetype whatever the spec: decided by class alone, so a client that reports an odd spec role or
+-- primary stat (seen on a hunter: spell power food ranked first) cannot turn them into something else
+local FIXED_CLASS = { HUNTER = true, ROGUE = true, MAGE = true, WARLOCK = true }
+
 local PRIMARY_STAT = { [1] = "str", [2] = "agi", [4] = "int" }   -- LE_UNIT_STAT_*: 1 strength, 2 agility, 3 stamina, 4 intellect
 
 local function specArchetype()
@@ -101,10 +105,9 @@ end
 
 -- archetype key or nil when nothing can be told
 function K:DetectArchetype()
-    local key = specArchetype()
-    if key then return key end
     local _, class = UnitClass("player")
-    return class and CLASS_ARCHETYPE[class] or nil
+    if class and FIXED_CLASS[class] then return CLASS_ARCHETYPE[class] end
+    return specArchetype() or (class and CLASS_ARCHETYPE[class]) or nil
 end
 
 -- readable result for the settings page
@@ -251,7 +254,7 @@ end
 -- fish / fungus / cheese / bread / fruit are checked before the broad meat words.
 local DIET_WORDS = {
     { "fish",   { "fish", "salmon", "trout", "bass", "catfish", "snapper", "eel", "mackerel", "cod", "lobster", "clam", "oyster",
-                  "squid", "tuna", "herring", "yellowtail", "mudfish", "shrimp", "crab", "sturgeon", "bream" } },
+                  "squid", "tuna", "herring", "yellowtail", "mudfish", "shrimp", "crab", "sturgeon", "bream", "albacore" } },
     { "fungus", { "mushroom", "fungus", "shroom", "truffle", "morel", "toadstool", "cap" } },
     { "cheese", { "cheese" } },
     { "bread",  { "bread", "loaf", "muffin", "biscuit", "roll", "pastry", "bun", "cake", "cracker", "pretzel", "scone" } },
