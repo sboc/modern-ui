@@ -1,0 +1,49 @@
+name: Release
+
+# Every push to main that changes the addon gets the next patch tag and is
+# published to CurseForge (and as a GitHub release) with a changelog of the
+# commits since the previous tag.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "modern-ui/**"
+      - ".pkgmeta"
+
+permissions:
+  contents: write
+
+concurrency: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the changelog needs history and tags
+
+      - name: Tag next patch version
+        id: tag
+        run: |
+          # A re-run of a failed job reuses the tag already on this commit.
+          tag=$(git tag --points-at HEAD --list '[0-9]*' --sort=-v:refname | head -n1)
+          if [ -z "$tag" ]; then
+            last=$(git tag --list '[0-9]*' --sort=-v:refname | head -n1)
+            last=${last:-1.0.0}
+            tag="${last%.*}.$(( ${last##*.} + 1 ))"
+            git tag "$tag"
+            git push origin "$tag"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Package and upload
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # The packager refuses a branch push whose commit carries a tag (it
+          # expects a separate tag build), so present this run as that build.
+          export GITHUB_REF="refs/tags/$TAG" GITHUB_REF_NAME="$TAG"
+          curl -fsSL https://raw.githubusercontent.com/BigWigsMods/packager/v2/release.sh | bash

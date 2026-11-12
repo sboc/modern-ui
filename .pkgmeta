@@ -1,0 +1,11 @@
+package-as: modern-ui
+
+# The addon lives in the modern-ui/ subfolder; lift it to the package root.
+move-folders:
+  modern-ui/modern-ui: modern-ui
+
+ignore:
+  - README.md
+  - curseforge-description.md
+  - install.sh
+  - logo.png

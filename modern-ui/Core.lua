@@ -9,6 +9,8 @@ ns.moduleList = {}
 
 local GetMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
 ns.version = (GetMeta and GetMeta(ADDON, "Version")) or "dev"
+-- A git checkout still has the packager's version placeholder in the TOC.
+if ns.version:find("@", 1, true) then ns.version = "dev" end
 
 -- WoW Forever ("camelot" game type): the 12.1 engine with vanilla content,
 -- reporting a 1.60+ interface number (16001).
