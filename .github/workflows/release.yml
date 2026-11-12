@@ -40,7 +40,7 @@ jobs:
 
       - name: Package and upload
         env:
-          CF_API_KEY: ${{ secrets.MODERNUI }}
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
