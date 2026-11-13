@@ -188,6 +188,7 @@ ns.defaults = {
     iteminfo = { enabled = true, character = true, bags = true, sets = true, newGlow = true },
     totems = { enabled = true, size = 32, spacing = 3, scale = 1, last = {} },   -- last: slot -> spell the slot's button casts
     weaponenchants = { enabled = true, size = 24 },
+    buffreminder = { enabled = true, self = true, party = false, raid = false, threshold = 120, size = 32, scale = 1 },
     unitframes = {
         enabled = true,
         classColor = true,
@@ -289,6 +290,7 @@ ns.defaults.positions = {
     databar_rep = pos("BOTTOM", 0, 151),
     datatexts = pos("TOP", 0, -4),
     totembar = pos("BOTTOM", 0, 6),          -- the pet / stance bar spot (shamans have neither)
+    buffreminder = pos("CENTER", 0, 200),
     weaponenchant = pos("BOTTOM", -350, 338),   -- on top of the focus frame
     lootroll = pos("TOP", 0, -160),
 }

@@ -334,7 +334,7 @@ function ns.GetAuraAt(unit, idx, filter, isBuff)
     if UnitAura then
         local n, ic, count, _, duration, expires = UnitAura(unit, idx, filter)
         if n then
-            return { icon = ic, applications = count, duration = duration, expirationTime = expires, legacyIndex = idx }
+            return { name = n, icon = ic, applications = count, duration = duration, expirationTime = expires, legacyIndex = idx }
         end
     end
 end

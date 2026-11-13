@@ -32,6 +32,7 @@ DataTexts.lua
 Misc.lua
 ItemInfo.lua
 Totems.lua
+BuffReminder.lua
 KeyBind.lua
 BossMods.lua
 Chat.lua

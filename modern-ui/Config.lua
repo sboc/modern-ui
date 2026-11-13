@@ -373,12 +373,12 @@ local function minimapOptions()
         Check("minimap.showCalendar", "Calendar"),
         Check("minimap.showMail", "Mail / crafting orders"),
         Check("minimap.showDifficulty", "Instance difficulty"),
-        Check("minimap.showAddons", "Addon compartment"),
+        Check("minimap.showAddons", "Addon compartment (when not in the flyout)"),
         Header("Button flyout"),
         Text("Collects the group finder / PvP queue buttons and addon minimap buttons behind one small + button on the map. A yellow dot on it means a queue is waiting."),
         Check("minimap.flyout", "Collect buttons into a flyout"),
         Check("minimap.flyoutQueue", "Include queue, PvP and landing page buttons"),
-        Check("minimap.flyoutAddons", "Include addon minimap buttons"),
+        Check("minimap.flyoutAddons", "Include addon minimap buttons and the addon compartment"),
         Range("minimap.flyoutColumns", "Flyout columns", 1, 8, 1),
         Range("minimap.flyoutSize", "Flyout button size", 20, 44, 1, px),
         Text("Used only when the flyout is off or does not collect them:"),
@@ -539,6 +539,21 @@ local function totemOptions()
         Range("totems.size", "Button size", 20, 60, 1, px),
         Range("totems.spacing", "Spacing", 0, 20, 1, px),
         Range("totems.scale", "Scale", 0.5, 2, 0.05, x2),
+        Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
+    }
+end
+
+local function buffReminderOptions()
+    return {
+        Header("Buff Reminder"),
+        Check("buffreminder.enabled", "Remind me of missing buffs (druids: Mark of the Wild, Thorns)"),
+        Text("Shows an icon while a buff is missing or about to run out. Hidden in combat, while dead and when the buff is not known."),
+        Check("buffreminder.self", "Check myself"),
+        Check("buffreminder.party", "Check party members in range"),
+        Check("buffreminder.raid", "Check raid members in range"),
+        Range("buffreminder.threshold", "Warn when less than this is left", 0, 600, 10, function(v) return v .. " s" end),
+        Range("buffreminder.size", "Icon size", 20, 64, 1, px),
+        Range("buffreminder.scale", "Scale", 0.5, 2, 0.05, x2),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
     }
 end
@@ -711,6 +726,7 @@ local function buildPageList()
     pages[#pages + 1] = { key = "databar_rep", title = "Reputation Bar", options = function() return dataBarOptions("rep", "Reputation Bar") end }
     pages[#pages + 1] = { key = "datatexts", title = "Data Texts", options = dataTextOptions }
     pages[#pages + 1] = { key = "totems", title = "Totem Bar", options = totemOptions }
+    pages[#pages + 1] = { key = "buffreminder", title = "Buff Reminder", options = buffReminderOptions }
     pages[#pages + 1] = { key = "misc", title = "Quality of Life", options = miscOptions }
     pages[#pages + 1] = { key = "chat", title = "Chat", options = chatOptions }
     pages[#pages + 1] = { key = "nameplates", title = "Nameplates", options = nameplateOptions }
