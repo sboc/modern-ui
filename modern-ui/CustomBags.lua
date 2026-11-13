@@ -610,8 +610,9 @@ end
 
 function Window:IsOpen() return self.frame and self.frame:IsShown() or false end
 
-function Window:Refresh()
-    if not self:IsOpen() then return end
+-- force: also lay out a closed window (see prime)
+function Window:Refresh(force)
+    if not (force or self:IsOpen()) then return end
     local entries, empties = gather(self)
     local combat = InCombatLockdown()
 
@@ -958,6 +959,15 @@ end
 -- Blizzard's Toggle*/Open* call each other and per-bag functions, so one key press fires several
 -- hooks (inner ones first, the outermost last). Collect them and act once next frame: the last
 -- intent wins, and "toggle" is relative to our state before the first hook.
+-- The window and its item buttons cannot be made in combat. Until they exist, Blizzard's bags stay.
+local function ready() return bags.frame or not InCombatLockdown() end
+
+-- Build and lay out the closed bag window while that is still allowed (login, and the moment combat starts:
+-- lockdown begins after PLAYER_REGEN_DISABLED), so opening it in combat shows every item.
+local function prime()
+    if CB.active and not bags:IsOpen() and bags:Build() then bags:Refresh(true) end
+end
+
 local pending
 local function resolve()
     local p = pending
@@ -972,7 +982,7 @@ end
 local function post(name, kind, ranged)
     if type(_G[name]) ~= "function" then return end
     hooksecurefunc(name, function(id)
-        if not CB.active or hiding > 0 then return end
+        if not CB.active or hiding > 0 or not ready() then return end
         if ranged and not inRange(id) then return end
         if not pending then
             pending = { was = CB:IsOpen() }
@@ -996,7 +1006,7 @@ local function install()
     for i = 1, 13 do list[#list + 1] = _G["ContainerFrame" .. i] end
     for _, f in ipairs(list) do
         if f and f.HookScript then
-            f:HookScript("OnShow", function() if CB.active then hideBlizzardBags() end end)
+            f:HookScript("OnShow", function() if CB.active and ready() then hideBlizzardBags() end end)
         end
     end
     hookBankFrame()
@@ -1035,6 +1045,8 @@ function CB:Init()
         ns:On(e, requestAll)
     end
     ns:On("CURSOR_CHANGED", onCursor)
+    ns:On("PLAYER_ENTERING_WORLD", prime)
+    ns:On("PLAYER_REGEN_DISABLED", prime)
     ns:On("BANKFRAME_OPENED", onBankOpened)
     ns:On("BANKFRAME_CLOSED", onBankClosed)
     if cfg().enabled then
