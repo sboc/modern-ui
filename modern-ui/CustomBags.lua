@@ -700,6 +700,8 @@ function Window:Build()
     local spec = self.spec
     local frame = UI.Box(UIParent, { 0.04, 0.04, 0.05, ns.db.bagwindows.bgAlpha or 0.92 })
     self.frame = frame
+    -- hidden before OnHide is set: a new frame starts shown, and the bank window's OnHide leaves the bank
+    frame:Hide()
     _G[spec.name] = frame
     table.insert(UISpecialFrames, spec.name)
     frame:SetFrameStrata("DIALOG")
@@ -723,7 +725,6 @@ function Window:Build()
         if self.searchBox then self.searchBox:ClearFocus() end
         if spec.onHide then spec.onHide() end
     end)
-    frame:Hide()
     self:ApplyPosition()
 
     local title = UI.Text(frame, spec.title, "GameFontNormalLarge")
@@ -885,19 +886,9 @@ local function openBank()
     end
 end
 
--- The first visit after login asks the server for the bank's contents: they arrive a moment after the bank opens,
--- and not always with an event this window listens to. Look again a few times while the bank stays open.
-local bankVisit = 0
 local function onBankOpened()
     bankOpen, blizzBank = true, false
     openBank()
-    bankVisit = bankVisit + 1
-    local visit = bankVisit
-    for _, delay in ipairs({ 0.1, 0.3, 0.7, 1.5, 3 }) do
-        C_Timer.After(delay, function()
-            if bankOpen and visit == bankVisit then bank:RequestRefresh() end
-        end)
-    end
 end
 
 local function onBankClosed()
