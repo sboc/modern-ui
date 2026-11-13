@@ -42,7 +42,7 @@ local SATELLITES = {
     { opt = "showQueue", get = function() return _G.QueueStatusButton end,
       point = "BOTTOMRIGHT", x = -26, y = -2, flyoutKey = "flyoutQueue" },
     { opt = "showAddons", get = function() return _G.AddonCompartmentFrame end,
-      point = "TOPRIGHT", x = -22, y = 2 },
+      point = "TOPRIGHT", x = -22, y = 2, flyoutKey = "flyoutAddons" },
 }
 
 local function placeSatellites()
@@ -153,6 +153,7 @@ local function scanButtons()
     end
     if c.flyoutAddons then
         add(launcher)
+        add(_G.AddonCompartmentFrame)   -- Blizzard's own addon collector joins ours: one button, one panel
         for _, parent in ipairs({ _G.Minimap, _G.MinimapBackdrop, _G.MinimapCluster }) do
             if parent and parent.GetChildren then
                 for _, child in ipairs({ parent:GetChildren() }) do
