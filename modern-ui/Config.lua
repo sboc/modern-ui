@@ -59,7 +59,7 @@ local function generalOptions()
                 ns:Print("Profile reset to defaults.")
             end)
         end),
-        Text("Slash commands: /mui, /mui wizard, /mui unlock, /mui lock, /mui reset, /mui reload"),
+        Text("Slash commands: /mui, /mui wizard, /mui unlock, /mui lock, /mui kb, /mui reset, /mui reload"),
     }
 end
 
@@ -104,6 +104,24 @@ local function profileOptions()
                 ns:Print("Deleted profile " .. old)
             end)
         end),
+        Header("Share"),
+        Text("Export turns the active profile into a line of text. Import makes a new profile from such a line."),
+        Button("Export current profile...", function()
+            UI.Prompt("Profile string (Ctrl+C to copy)", ns:ExportProfile())
+        end),
+        Button("Import a profile...", function()
+            UI.Prompt("Paste a profile string (Ctrl+V)", "", function(text)
+                UI.Prompt("Name for the imported profile", "Imported", function(name)
+                    local ok, why = ns:ImportProfile(name, text)
+                    if ok then
+                        ns:SelectProfile(name)
+                        ns:Print("Imported profile " .. name)
+                    else
+                        ns:Print("Import failed: " .. tostring(why) .. ".")
+                    end
+                end)
+            end)
+        end),
         Header("Reset"),
         Button("Reset current profile to defaults", function()
             UI.Confirm("Reset profile '" .. ns.profileName .. "' to defaults?", function()
@@ -121,8 +139,19 @@ local function actionBarGeneral()
         Check("actionbars.iconZoom", "Crop icon edges"),
         Check("actionbars.borders", "Draw button borders"),
         Check("actionbars.swingTimer", "Swing timer on the Attack button"),
+        Check("actionbars.rangedTimer", "Shot timer on the Auto Shot / Shoot button"),
+        Check("actionbars.swingBar", "Swing / shot timer as a bar between the Essential and Utility cooldowns"),
+        Range("actionbars.swingBarWidth", "Timer bar width", 60, 620, 5, px),
+        Range("actionbars.swingBarHeight", "Timer bar height", 2, 20, 1, px),
+        Text("The bar works on its own: the two button timers above can be off. Unlock frames to move it."),
+        Check("actionbars.ammoCount", "Ammunition count on the Auto Shot button"),
+        Range("actionbars.ammoWarn", "Low ammunition warning below (0 = off)", 0, 1000, 50),
+        Range("actionbars.lowCount", "Item / reagent counts turn red at or below (0 = off)", 0, 20, 1),
         Check("actionbars.autoRank", "Auto-replace spells with their highest known rank"),
         Text("Classic only. When you learn a new rank, every lower rank on your bars is swapped for it (runs out of combat)."),
+        Header("Key bindings"),
+        Text("Hover a button and press a key, a mouse button or the wheel to bind it; Escape clears it. Also /mui kb. Out of combat only."),
+        Button("Bind keys by hovering", function() ns.KeyBind:Start() end),
         Header("Layout"),
         Text("Use 'Unlock frames' on the General page (or /mui unlock) to drag bars into place."),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
@@ -224,9 +253,17 @@ local function bagWindowOptions()
         Range("custombags.slotSize", "Slot size", 28, 48, 1),
         Check("custombags.showNew", "Show a \"New items\" section"),
         Button("Clear custom item assignments", function() if ns.CustomBags then ns.CustomBags:Clear() end end),
+        Text("The Junk section's header shows what the whole section sells for."),
+        Header("Item details"),
+        Check("iteminfo.enabled", "Show item details on item slots"),
+        Check("iteminfo.bags", "Item level on weapons and armor in the bags"),
+        Check("iteminfo.character", "Item level on the character frame's equipment slots"),
+        Check("iteminfo.sets", "Corner marker on items that belong to an equipment set"),
+        Check("iteminfo.newGlow", "Outline new items (grouped bag window)"),
         Header("Vendor"),
         Check("vendor.autoSellJunk", "Automatically sell gray (junk) items when a merchant opens"),
-        Check("vendor.summary", "Print what was sold and for how much"),
+        Check("vendor.autoRepair", "Automatically repair when a repair merchant opens"),
+        Check("vendor.summary", "Print what was sold / repaired and for how much"),
         Text("Sold items can be bought back from the merchant's buyback tab."),
         Text("Protect an item (a skinning knife, say): Alt+click it in your bags. Selling it by right-clicking at a merchant then asks for confirmation, and auto sell skips it. Alt+click again to remove. Also: /mui protect [shift-click an item]."),
         Text("Protected now (reopen this page to refresh): " .. (function()
@@ -253,6 +290,10 @@ local function skinOptions()
     for _, opt in ipairs(ns.Skins.options) do
         o[#o + 1] = Check("skins." .. opt[1], opt[2])
     end
+    o[#o + 1] = Check("skins.lootMover", "Group loot roll frames on a Modern UI anchor (unlock to move; off needs a /reload)")
+    o[#o + 1] = Header("Boss mods")
+    o[#o + 1] = { type = "check", path = "skins.bossmods", label = "Skin BigWigs / DBM timer bars", apply = "bossmods" }
+    o[#o + 1] = Text("BigWigs: adds a bar style called \"Modern UI\" - pick it under BigWigs > Bars > Style. DBM: its timer bars are restyled directly. Turning this off needs a /reload.")
     o[#o + 1] = Header("Look")
     o[#o + 1] = Range("skins.bgAlpha", "Background opacity", 0.3, 1, 0.02, pct)
     o[#o + 1] = Check("skins.qualityColors", "Color equipment slot borders by item quality")
@@ -451,6 +492,7 @@ local function chatOptions()
         Check("chat.hideButtons", "Hide Blizzard's chat buttons"),
         Select("chat.timestamps", "Timestamps", ns.Chat.TIMESTAMP_FORMATS),
         Check("chat.arrowKeys", "Arrow keys move the text cursor (instead of turning the camera)"),
+        Check("chat.urls", "Web addresses are clickable (opens a box to copy from; applies to new lines)"),
         { type = "check", label = "Combat log as its own window on the right",
           get = function() return ns.db.chat.combatLog end,
           set = function(v) ns.db.chat.combatLog = v; ns.db.chat.combatLogDone = false end,
@@ -463,6 +505,53 @@ local function chatOptions()
         Check("chat.move", "Take over the main chat window's position and size"),
         Range("chat.width", "Width", 200, 900, 5, px),
         Range("chat.height", "Height", 80, 600, 5, px),
+        Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
+    }
+end
+
+local function dataTextOptions()
+    return {
+        Header("Data Texts"),
+        Check("datatexts.enabled", "Show the data text strip"),
+        Text("A thin strip of live numbers, top center by default. Unlock frames to move it."),
+        Check("datatexts.gold", "Gold"),
+        Check("datatexts.durability", "Durability (lowest equipped item; warns in chat under 20%)"),
+        Check("datatexts.bags", "Bag slots used"),
+        Check("datatexts.class", "Class supplies: ammunition (hunter), soul shards, reagents"),
+        Check("datatexts.fps", "Frame rate and latency"),
+        Check("datatexts.clock", "Clock"),
+        Header("Look"),
+        Check("datatexts.background", "Draw a background and border"),
+        Range("datatexts.width", "Width (0 = fit the texts)", 0, 1600, 10, function(v) return v == 0 and "auto" or v .. " px" end),
+        Range("datatexts.fontSize", "Font size (0 = general size)", 0, 24, 1),
+        Range("datatexts.scale", "Scale", 0.5, 2, 0.05, x2),
+        Range("datatexts.alpha", "Opacity", 0.1, 1, 0.05, pct),
+        Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
+    }
+end
+
+local function totemOptions()
+    return {
+        Header("Totem Bar"),
+        Check("totems.enabled", "Show the totem bar (shamans)"),
+        Text("One button per element with the active totem and its time left. Left-click drops the totem you last used for that element again, right-click dismisses it. What a button casts only updates out of combat."),
+        Range("totems.size", "Button size", 20, 60, 1, px),
+        Range("totems.spacing", "Spacing", 0, 20, 1, px),
+        Range("totems.scale", "Scale", 0.5, 2, 0.05, x2),
+        Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
+    }
+end
+
+local function miscOptions()
+    return {
+        Header("Looting"),
+        Check("misc.fastLoot", "Fast loot: take everything at once when auto loot is on"),
+        Text("Follows Blizzard's auto loot setting and its modifier key. With auto loot off, nothing changes."),
+        Header("AFK screen"),
+        Check("misc.afkScreen", "Dim the screen and show a timer while you are AFK"),
+        Header("Weapon enchants"),
+        Check("weaponenchants.enabled", "Show temporary weapon enchants (poisons, stones, weapon buffs) with their time left"),
+        Range("weaponenchants.size", "Icon size", 16, 48, 1, px),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
     }
 end
@@ -518,6 +607,7 @@ local function unitCommon()
         Check("unitframes.classColor", "Class colored health (players)"),
         Check("unitframes.reactionColor", "Reaction colored health (NPCs)"),
         Check("unitframes.smooth", "Smooth bar animation"),
+        Check("unitframes.healPrediction", "Show incoming heals on the health bar"),
         Select("unitframes.healthTextFormat", "Health text", HEALTH_FORMATS),
         Header("Blizzard buffs / debuffs"),
         Check("unitframes.showBlizzardAuras", "Show Blizzard's buff / debuff window"),
@@ -570,6 +660,7 @@ local function frameOptions(key, label, opts)
         Check(b .. ".onlyMyBuffs", "Only show my own buffs (HoTs)"),
         Check(b .. ".showDebuffs", "Show debuffs"),
         Check(b .. ".onlyMyDebuffs", "Only show my own debuffs"),
+        Check(b .. ".onlyDispellable", "Only show debuffs I can dispel"),
         Range(b .. ".auraSize", "Icon size", 12, 40, 1, px),
         Range(b .. ".auraPerRow", "Icons per row", 1, 12, 1),
         Range(b .. ".auraCount", "Maximum icons", 1, 24, 1),
@@ -617,6 +708,9 @@ local function buildPageList()
     pages[#pages + 1] = { key = "tracker", title = "Objective Tracker", options = trackerOptions }
     pages[#pages + 1] = { key = "databar_xp", title = "Experience Bar", options = function() return dataBarOptions("xp", "Experience Bar") end }
     pages[#pages + 1] = { key = "databar_rep", title = "Reputation Bar", options = function() return dataBarOptions("rep", "Reputation Bar") end }
+    pages[#pages + 1] = { key = "datatexts", title = "Data Texts", options = dataTextOptions }
+    pages[#pages + 1] = { key = "totems", title = "Totem Bar", options = totemOptions }
+    pages[#pages + 1] = { key = "misc", title = "Quality of Life", options = miscOptions }
     pages[#pages + 1] = { key = "chat", title = "Chat", options = chatOptions }
     pages[#pages + 1] = { key = "nameplates", title = "Nameplates", options = nameplateOptions }
     pages[#pages + 1] = { key = "tooltip", title = "Tooltip", options = tooltipOptions }

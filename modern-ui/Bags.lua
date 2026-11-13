@@ -174,7 +174,12 @@ local function restyleFrame(frame)
         end
     end
     local marking = ns.Vendor and ns.Vendor.TrashShown and ns.Vendor:TrashShown() or false
-    eachItem(frame, function(btn) pcall(styleSlot, btn) pcall(markSlot, btn, marking) end)
+    local II = ns.ItemInfo
+    eachItem(frame, function(btn)
+        pcall(styleSlot, btn)
+        pcall(markSlot, btn, marking)
+        if II then pcall(II.DecorateBagButton, btn) end
+    end)
 end
 
 -- Moving: drag a bag window by its background. Blizzard re-anchors the windows whenever one opens or

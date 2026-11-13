@@ -11,27 +11,27 @@ ns.ActionBars = AB
 local hider = CreateFrame("Frame")
 hider:Hide()
 
--- key = db key; blizzard bar containers are tried in order.
+-- key = db key; blizzard bar containers are tried in order. bind = binding command prefix (KeyBind.lua).
 local DEFS = {
-    { id = "bar1", dbKey = 1, prefix = "ActionButton", count = 12, label = "Action Bar 1",
+    { id = "bar1", bind = "ACTIONBUTTON", dbKey = 1, prefix = "ActionButton", count = 12, label = "Action Bar 1",
       containers = { "MainActionBar", "MainMenuBar" }, pageable = true },
-    { id = "bar2", dbKey = 2, prefix = "MultiBarBottomLeftButton", count = 12, label = "Action Bar 2",
+    { id = "bar2", bind = "MULTIACTIONBAR1BUTTON", dbKey = 2, prefix = "MultiBarBottomLeftButton", count = 12, label = "Action Bar 2",
       containers = { "MultiBarBottomLeft" } },
-    { id = "bar3", dbKey = 3, prefix = "MultiBarBottomRightButton", count = 12, label = "Action Bar 3",
+    { id = "bar3", bind = "MULTIACTIONBAR2BUTTON", dbKey = 3, prefix = "MultiBarBottomRightButton", count = 12, label = "Action Bar 3",
       containers = { "MultiBarBottomRight" } },
-    { id = "bar4", dbKey = 4, prefix = "MultiBarRightButton", count = 12, label = "Action Bar 4",
+    { id = "bar4", bind = "MULTIACTIONBAR3BUTTON", dbKey = 4, prefix = "MultiBarRightButton", count = 12, label = "Action Bar 4",
       containers = { "MultiBarRight" } },
-    { id = "bar5", dbKey = 5, prefix = "MultiBarLeftButton", count = 12, label = "Action Bar 5",
+    { id = "bar5", bind = "MULTIACTIONBAR4BUTTON", dbKey = 5, prefix = "MultiBarLeftButton", count = 12, label = "Action Bar 5",
       containers = { "MultiBarLeft" } },
-    { id = "bar6", dbKey = 6, prefix = "MultiBar5Button", count = 12, label = "Action Bar 6",
+    { id = "bar6", bind = "MULTIACTIONBAR5BUTTON", dbKey = 6, prefix = "MultiBar5Button", count = 12, label = "Action Bar 6",
       containers = { "MultiBar5" } },
-    { id = "bar7", dbKey = 7, prefix = "MultiBar6Button", count = 12, label = "Action Bar 7",
+    { id = "bar7", bind = "MULTIACTIONBAR6BUTTON", dbKey = 7, prefix = "MultiBar6Button", count = 12, label = "Action Bar 7",
       containers = { "MultiBar6" } },
-    { id = "bar8", dbKey = 8, prefix = "MultiBar7Button", count = 12, label = "Action Bar 8",
+    { id = "bar8", bind = "MULTIACTIONBAR7BUTTON", dbKey = 8, prefix = "MultiBar7Button", count = 12, label = "Action Bar 8",
       containers = { "MultiBar7" } },
-    { id = "petbar", dbKey = "pet", prefix = "PetActionButton", count = 10, label = "Pet Bar", centered = true,
+    { id = "petbar", bind = "BONUSACTIONBUTTON", dbKey = "pet", prefix = "PetActionButton", count = 10, label = "Pet Bar", centered = true,
       containers = { "PetActionBar" } },
-    { id = "stancebar", dbKey = "stance", prefix = "StanceButton", count = 10, label = "Stance Bar", centered = true,
+    { id = "stancebar", bind = "SHAPESHIFTBUTTON", dbKey = "stance", prefix = "StanceButton", count = 10, label = "Stance Bar", centered = true,
       altPrefix = "ShapeshiftButton", containers = { "StanceBar", "ShapeshiftBarFrame" } },
 }
 AB.defs = DEFS
@@ -526,11 +526,19 @@ end)
 -- estimate: one swing when auto attack starts, then repeating every weapon speed. It can drift from
 -- the real swings (parries, resets), but needs no protected calls.
 local swing = { start = nil, speed = 2, estimated = true }
-local swingButtons, swingDirty = {}, true
+-- Auto Shot / Shoot (wand): the same countdown on the auto-repeat button. Every shot restarts it
+-- (UNIT_SPELLCAST_SUCCEEDED); between those it repeats every ranged weapon speed.
+local shot = { start = nil, speed = 2, estimated = true }
+local AUTO_REPEAT_SPELLS = { [75] = true, [5019] = true }   -- Auto Shot, Shoot
+local swingButtons, shotButtons, countButtons, swingDirty = {}, {}, {}, true
 local swingFrame = CreateFrame("Frame")
 
 local function swingEnabled()
     return ns.db and ns.db.actionbars and ns.db.actionbars.swingTimer
+end
+
+local function shotEnabled()
+    return ns.db and ns.db.actionbars and ns.db.actionbars.rangedTimer
 end
 
 -- 12.x returns "secret" numbers from UnitAttackSpeed in some situations (no compare / arithmetic on them,
@@ -569,6 +577,12 @@ local function currentSpeed()
     return (ok and clean(v)) or weaponSpeed or swing.speed or 2
 end
 
+local function rangedSpeed()
+    if not UnitRangedDamage then return shot.speed or 2 end
+    local ok, v = pcall(UnitRangedDamage, "player")
+    return (ok and clean(v)) or shot.speed or 2
+end
+
 local function swingBegin(estimated)
     swing.start = GetTime()
     swing.speed = currentSpeed()
@@ -597,42 +611,52 @@ end
 
 local function rebuildSwingButtons()
     swingDirty = false
-    for i = #swingButtons, 1, -1 do swingButtons[i] = nil end
-    if not IsAttackAction then return end
+    for _, list in ipairs({ swingButtons, shotButtons, countButtons }) do
+        for i = #list, 1, -1 do list[i] = nil end
+    end
     for _, def in ipairs(DEFS) do
         if type(def.dbKey) == "number" then
             for i = 1, def.count do
                 local btn = getBtn(def, i)
                 local slot = btn and (btn.action or (btn.GetAttribute and btn:GetAttribute("action")))
                 if btn and slot and btn:IsVisible() then
-                    local ok, isAttack = pcall(IsAttackAction, slot)
-                    if ok and isAttack then swingButtons[#swingButtons + 1] = btn end
+                    btn.molSlot = slot
+                    countButtons[#countButtons + 1] = btn
+                    local ok, isAttack = pcall(IsAttackAction or error, slot)
+                    local ok2, isRepeat = pcall(IsAutoRepeatAction or error, slot)
+                    if ok and isAttack then swingButtons[#swingButtons + 1] = btn
+                    elseif ok2 and isRepeat then shotButtons[#shotButtons + 1] = btn end
                 end
             end
         end
     end
+    -- a button that stopped being the attack / shot button keeps no stale overlay
+    for _, btn in ipairs(countButtons) do
+        if btn.molSwing then btn.molSwing:Hide() end
+        if btn.molAmmo then btn.molAmmo:SetText("") end
+    end
 end
 
-local function hideSwing()
-    for _, btn in ipairs(swingButtons) do
+local function hideSwing(list)
+    for _, btn in ipairs(list or swingButtons) do
         if btn.molSwing then btn.molSwing:Hide() end
     end
 end
 
-swingFrame:SetScript("OnUpdate", function(_, elapsed)
-    if not started then return end
-    if swingDirty then rebuildSwingButtons() end
-    local remaining
-    if swingEnabled() and swing.start then
-        local now = GetTime()
-        local age = now - swing.start
-        if swing.estimated then age = age % swing.speed end
-        remaining = swing.speed - age
-        if remaining <= 0 then remaining = nil end
-    end
-    if not remaining then hideSwing() return end
-    local frac = math.min(1, remaining / swing.speed)
-    for _, btn in ipairs(swingButtons) do
+-- seconds until the next swing / shot, nil while the timer is not running
+local function remainingOf(timer)
+    if not timer.start then return nil end
+    local age = GetTime() - timer.start
+    if timer.estimated then age = age % timer.speed end
+    local remaining = timer.speed - age
+    return remaining > 0 and remaining or nil
+end
+
+local function drawTimer(timer, list, enabled)
+    local remaining = enabled and remainingOf(timer) or nil
+    if not remaining then hideSwing(list) return end
+    local frac = math.min(1, remaining / timer.speed)
+    for _, btn in ipairs(list) do
         local o = swingOverlay(btn)
         local size = btn:GetWidth()
         if not o.fontSize or o.fontSize ~= size then
@@ -642,6 +666,121 @@ swingFrame:SetScript("OnUpdate", function(_, elapsed)
         o.text:SetText(string.format("%.1f", remaining))
         o.bar:SetWidth(math.max(1, (size - 2) * frac))
         o:Show()
+    end
+end
+
+----------------------------------------------------------------------
+-- Counts: ammunition on the Auto Shot button, and item / reagent counts turn red when low
+----------------------------------------------------------------------
+local ammoWarned = false
+
+local function ammoCount()
+    local ok, slot = pcall(GetInventorySlotInfo, "AmmoSlot")
+    if not ok or type(slot) ~= "number" then return nil end
+    if not GetInventoryItemID("player", slot) then return nil end
+    return clean(GetInventoryItemCount("player", slot))
+end
+
+local function updateCounts()
+    local ab = ns.db.actionbars
+    local low = ab.lowCount or 0
+    for _, btn in ipairs(countButtons) do
+        local ct = btn.Count or _G[(btn:GetName() or "") .. "Count"]
+        if ct then
+            local ok, n = pcall(GetActionCount, btn.molSlot)
+            n = ok and type(n) == "number" and not (issecretvalue and issecretvalue(n)) and n or nil
+            if low > 0 and n and n <= low then ct:SetTextColor(1, 0.3, 0.3) else ct:SetTextColor(1, 1, 1) end
+        end
+    end
+    local ammo = ab.ammoCount and #shotButtons > 0 and ammoCount() or nil
+    local warn = ab.ammoWarn or 0
+    for _, btn in ipairs(shotButtons) do
+        local fs = btn.molAmmo
+        if not fs and ammo then
+            local o = swingOverlay(btn)
+            local holder = CreateFrame("Frame", nil, btn)
+            holder:SetAllPoints()
+            holder:SetFrameLevel(o:GetFrameLevel())
+            holder:EnableMouse(false)
+            fs = holder:CreateFontString(nil, "OVERLAY")
+            fs:SetPoint("BOTTOMRIGHT", -2, 5)
+            btn.molAmmo = fs
+        end
+        if fs then
+            if ammo then
+                ns:SetFont(fs, math.max(9, math.floor(btn:GetWidth() * 0.30)), "OUTLINE")
+                fs:SetText(ammo)
+                if warn > 0 and ammo < warn then fs:SetTextColor(1, 0.3, 0.3) else fs:SetTextColor(1, 1, 1) end
+            else
+                fs:SetText("")
+            end
+        end
+    end
+    if ammo and warn > 0 then
+        if ammo >= warn then
+            ammoWarned = false
+        elseif not ammoWarned then
+            ammoWarned = true
+            ns:Print(string.format("|cffff4d4dLow ammunition|r: %d left.", ammo))
+        end
+    end
+end
+
+----------------------------------------------------------------------
+-- Timer bar: the running swing / shot timer as a thin bar of its own (option; by default it sits in the
+-- gap between the Essential and Utility cooldown rows). Fills up towards the next swing / shot.
+----------------------------------------------------------------------
+local timerBar
+
+local function layoutTimerBar()
+    local ab = ns.db.actionbars
+    if not ab.swingBar then
+        if timerBar then timerBar:Hide() end
+        return
+    end
+    if not timerBar then
+        timerBar = CreateFrame("StatusBar", "ModernUISwingBar", UIParent)
+        timerBar:SetMinMaxValues(0, 1)
+        timerBar.bg = timerBar:CreateTexture(nil, "BACKGROUND")
+        timerBar.bg:SetAllPoints()
+        timerBar.bg:SetColorTexture(0.03, 0.03, 0.04, 0.9)
+        timerBar.borders = ns.UI.AddBorder(timerBar, 1, 0, 0, 0, 1, "OVERLAY")
+        timerBar:Hide()
+        ns.Mover:Register("swingbar", timerBar, "Swing / Shot Timer Bar")
+    end
+    timerBar:SetStatusBarTexture(ns:GetTexture())
+    timerBar:SetStatusBarColor(ACCENT[1], ACCENT[2], ACCENT[3], 1)
+    timerBar:SetSize(ab.swingBarWidth, ab.swingBarHeight)
+    timerBar:SetScale(ns.db.general.scale)
+    ns.Mover:Position("swingbar")
+end
+
+local function drawTimerBar()
+    if not timerBar or not ns.db.actionbars.swingBar then return end
+    local timer = remainingOf(shot) and shot or swing
+    local remaining = remainingOf(timer)
+    if remaining then
+        timerBar:SetValue(1 - math.min(1, remaining / timer.speed))
+        timerBar:Show()
+    elseif ns.Mover:IsUnlocked() then
+        timerBar:SetValue(0.6)
+        timerBar:Show()
+    else
+        timerBar:Hide()
+    end
+end
+
+local countAcc = 0
+swingFrame:SetScript("OnUpdate", function(_, elapsed)
+    if not started or not ns.db then return end
+    if swingDirty then rebuildSwingButtons() end
+    drawTimer(swing, swingButtons, swingEnabled())
+    drawTimer(shot, shotButtons, shotEnabled())
+    drawTimerBar()
+    countAcc = countAcc + elapsed
+    if countAcc >= 0.5 then
+        countAcc = 0
+        updateCounts()
     end
 end)
 
@@ -658,6 +797,13 @@ local function setupSwingTimer()
     for _, e in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" }) do
         ns:On(e, function() C_Timer.After(0.5, readWeaponSpeed) end)
     end
+    ns:On("START_AUTOREPEAT_SPELL", function() shot.start, shot.speed = GetTime(), rangedSpeed() end)
+    ns:On("STOP_AUTOREPEAT_SPELL", function() shot.start = nil; hideSwing(shotButtons) end)
+    ns:On("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellID)
+        if unit ~= "player" or not shot.start then return end
+        if issecretvalue and issecretvalue(spellID) then return end
+        if AUTO_REPEAT_SPELLS[spellID] then shot.start, shot.speed = GetTime(), rangedSpeed() end
+    end)
 end
 
 ----------------------------------------------------------------------
@@ -798,6 +944,7 @@ function AB:Apply()
         end
         hideBlizzardArt()
         swingDirty = true
+        layoutTimerBar()
         AB:UpgradeRanks()
         if ns.UnitFrames and ns.UnitFrames.RefreshCastAnchor then ns.UnitFrames:RefreshCastAnchor() end
     end)

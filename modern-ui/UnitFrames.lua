@@ -103,6 +103,16 @@ local function updateHealth(f)
     end)
     if not ok then f.absorb:SetValue(0) end
 
+    -- incoming heals: a bar that starts where the health fill ends (clipped to the health bar)
+    local predict = ns.db.unitframes.healPrediction and UnitGetIncomingHeals and true or false
+    if predict then
+        predict = pcall(function()
+            f.heal:SetMinMaxValues(0, UnitHealthMax(unit))
+            f.heal:SetValue(UnitGetIncomingHeals(unit) or 0)
+        end)
+    end
+    f.heal:SetShown(predict)
+
     local dead, offline = false, false
     pcall(function()
         offline = not UnitIsConnected(unit)
@@ -264,6 +274,13 @@ local function updateSelection(f)
 end
 
 -- Auras ---------------------------------------------------------------
+-- debuff filter: everything, or only what the player can dispel (the client's own filter token)
+local function debuffFilter(cfg)
+    if not cfg.onlyDispellable then return "HARMFUL" end
+    local F = AuraUtil and AuraUtil.AuraFilters
+    return "HARMFUL|" .. ((F and F.RaidPlayerDispellable) or "RAID")
+end
+
 local function createAuraIcon(parent)
     local b = CreateFrame("Frame", nil, parent)
     b:EnableMouse(true)
@@ -344,7 +361,7 @@ local function updateAuraGroup(f, kind)
         for _, ic in ipairs(box.icons) do ic:Hide() end
         return 0
     end
-    local filter = isBuff and "HELPFUL" or "HARMFUL"
+    local filter = isBuff and "HELPFUL" or debuffFilter(cfg)
     if (isBuff and cfg.onlyMyBuffs) or (not isBuff and cfg.onlyMyDebuffs) then filter = filter .. "|PLAYER" end
     local shown = 0
     local idx = 1
@@ -483,6 +500,7 @@ end
 ----------------------------------------------------------------------
 local UNIT_EVENT_HANDLERS = {
     UNIT_HEALTH = updateHealth, UNIT_MAXHEALTH = updateHealth, UNIT_ABSORB_AMOUNT_CHANGED = updateHealth,
+    UNIT_HEAL_PREDICTION = updateHealth,
     UNIT_CONNECTION = updateAll, UNIT_FLAGS = updateHealth, UNIT_FACTION = updateAll,
     UNIT_POWER_UPDATE = function(f) updatePower(f); updateHappiness(f) end, UNIT_MAXPOWER = updatePower, UNIT_DISPLAYPOWER = updateAll,
     UNIT_NAME_UPDATE = updateName, UNIT_LEVEL = updateName,
@@ -551,6 +569,11 @@ local function createUnitFrame(unit, name, cfgKey)
     f.absorb:SetFrameLevel(f.health:GetFrameLevel() + 1)
     f.absorb:SetStatusBarColor(1, 1, 1, 0.35)
     f.absorb:SetValue(0)
+    f.heal = newBar(f.health)
+    f.heal:SetStatusBarColor(0.25, 0.9, 0.45, 0.5)
+    f.heal:SetValue(0)
+    f.heal:Hide()
+    pcall(f.health.SetClipsChildren, f.health, true)
 
     f.overlay = CreateFrame("Frame", nil, f)
     f.overlay:SetAllPoints()
@@ -753,7 +776,7 @@ local function configureAuras(f, cfg)
             return { key = key, filter = filter .. (extra and "|PLAYER" or ""), max = cfg.auraCount,
                 size = size, gap = gap, border = border, newLine = newLine }
         end
-        local debuffs = cfg.showDebuffs and group("debuffs", "HARMFUL", cfg.onlyMyDebuffs, { 0.7, 0.1, 0.1 })
+        local debuffs = cfg.showDebuffs and group("debuffs", debuffFilter(cfg), cfg.onlyMyDebuffs, { 0.7, 0.1, 0.1 })
         local buffs = cfg.showBuffs and group("buffs", "HELPFUL", cfg.onlyMyBuffs, { 0, 0, 0 })
         local rowWidth = per * (size + gap)
         local top, bottom
@@ -850,8 +873,16 @@ local function configureFrame(f, scale)
     if scale then f:SetScale(scale) end
 
     local tex = ns:GetTexture()
-    for _, bar in ipairs({ f.health, f.power, f.absorb }) do bar:SetStatusBarTexture(tex) end
+    for _, bar in ipairs({ f.health, f.power, f.absorb, f.heal }) do bar:SetStatusBarTexture(tex) end
     f.absorb:SetStatusBarColor(1, 1, 1, 0.35)
+    f.heal:SetStatusBarColor(0.25, 0.9, 0.45, 0.5)
+    local fill = f.health:GetStatusBarTexture()
+    f.heal:ClearAllPoints()
+    if fill then
+        f.heal:SetPoint("TOPLEFT", fill, "TOPRIGHT", 0, 0)
+        f.heal:SetPoint("BOTTOMLEFT", fill, "BOTTOMRIGHT", 0, 0)
+        f.heal:SetWidth(math.max(1, cfg.width - 2))
+    end
 
     local pH = cfg.showPower and cfg.powerHeight or 0
     f.power:ClearAllPoints()

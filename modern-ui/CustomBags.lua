@@ -269,6 +269,7 @@ local function updateButton(w, btn, e)
         btn.JunkIcon:SetShown(info and e.quality == 0 and not info.hasNoValue or false)
     end
     if info then updateCooldown(btn, e.bag, e.slot) elseif btn.Cooldown then pcall(btn.Cooldown.Clear, btn.Cooldown) end
+    if ns.ItemInfo then ns.ItemInfo.Decorate(btn, info and e.link or nil, info and isNew(e.bag, e.slot), "bags") end
     local dim = false
     if w.search ~= "" and info then dim = not (e.name:lower():find(w.search, 1, true)) end
     -- Trash button on: only the cheap gray stacks stay bright
@@ -440,6 +441,19 @@ end
 ----------------------------------------------------------------------
 -- Layout
 ----------------------------------------------------------------------
+-- gold / silver / copper with the coin icons; plain coloured letters if this client has no coin-string call
+local function moneyText(copper)
+    local api = (C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString) or GetCoinTextureString
+    if api then
+        local ok, text = pcall(api, copper, 12)
+        if ok and type(text) == "string" and text ~= "" then return text end
+    end
+    local g = math.floor(copper / 10000)
+    local sv = math.floor(copper / 100) % 100
+    local cp = copper % 100
+    return string.format("|cffffd700%d|rg |cffc7c7cf%d|rs |cffeda55f%d|rc", g, sv, cp)
+end
+
 local function fitScale(frame, height)
     local avail = UIParent:GetHeight() * 0.92
     local s = math.min(1, avail / math.max(height, 1))
@@ -456,7 +470,7 @@ local function layout(w, groups, freeGroup)
     local used = {}
     local hi = 0
 
-    local function header(key, label, count, kind)
+    local function header(key, label, count, kind, value)
         hi = hi + 1
         local h = w.headers[hi] or makeHeader(w, hi)
         h.key, h.kind = key, kind
@@ -467,7 +481,8 @@ local function layout(w, groups, freeGroup)
         local r, g, b = 1, 0.82, 0
         if kind then r, g, b = 0.62, 0.62, 0.68 elseif isCustom(key) then r, g, b = 0.30, 0.82, 1 end
         h.text:SetTextColor(r, g, b)
-        h.text:SetText((kind and "" or (collapsed and "+ " or "- ")) .. label .. (count and (" (" .. count .. ")") or ""))
+        h.text:SetText((kind and "" or (collapsed and "+ " or "- ")) .. label .. (count and (" (" .. count .. ")") or "")
+            .. ((value and value > 0) and ("   " .. moneyText(value)) or ""))
         h:Show()
         y = y + HEADER_H + 2
         return collapsed
@@ -489,7 +504,7 @@ local function layout(w, groups, freeGroup)
     end
 
     for _, g in ipairs(groups) do
-        local collapsed = header(g.key, sectionLabel(g.key), #g.items)
+        local collapsed = header(g.key, sectionLabel(g.key), #g.items, nil, g.value)
         if not collapsed then place(g.items) end
     end
     if freeGroup then
@@ -533,6 +548,12 @@ local function buildGroups(w, entries, empties)
         local g = byKey[key]
         if g then
             table.sort(g.items, sortItems)
+            if key == "JUNK" and ns.Vendor and ns.Vendor.SellPrice then
+                g.value = 0
+                for _, e in ipairs(g.items) do
+                    if not e.info.hasNoValue then g.value = g.value + ns.Vendor.SellPrice(e.info) * e.count end
+                end
+            end
             groups[#groups + 1] = g
         elseif dragging then
             groups[#groups + 1] = { key = key, items = {} }
@@ -563,7 +584,7 @@ local function signature(groups, free)
     local c = cfg()
     local parts = { c.columns, c.slotSize, dragging and "d" or "n" }
     for _, g in ipairs(groups) do
-        parts[#parts + 1] = g.key .. (c.collapsed[g.key] and "!" or ":")
+        parts[#parts + 1] = g.key .. (c.collapsed[g.key] and "!" or ":") .. (g.value or "")
         if not c.collapsed[g.key] then
             for _, e in ipairs(g.items) do parts[#parts + 1] = e.bag .. "," .. e.slot end
         end
@@ -572,19 +593,6 @@ local function signature(groups, free)
         for _, fg in ipairs(free) do parts[#parts + 1] = "f" .. fg.kind .. fg.items[1].bag .. "," .. fg.items[1].slot end
     end
     return table.concat(parts, " ")
-end
-
--- gold / silver / copper with the coin icons; plain coloured letters if this client has no coin-string call
-local function moneyText(copper)
-    local api = (C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString) or GetCoinTextureString
-    if api then
-        local ok, text = pcall(api, copper, 12)
-        if ok and type(text) == "string" and text ~= "" then return text end
-    end
-    local g = math.floor(copper / 10000)
-    local sv = math.floor(copper / 100) % 100
-    local cp = copper % 100
-    return string.format("|cffffd700%d|rg |cffc7c7cf%d|rs |cffeda55f%d|rc", g, sv, cp)
 end
 
 ----------------------------------------------------------------------

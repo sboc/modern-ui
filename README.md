@@ -13,6 +13,7 @@ Copy or symlink the `modern-ui/` folder into `World of Warcraft/_forever_/Interf
 | `/mui unlock` / `lock` | drag frames; arrow keys nudge, right-click resets one |
 | `/mui reset` | reset active profile to defaults |
 | `/mui food` | print the food / water the auto macros would pick |
+| `/mui kb` | hover key binding: hover a button, press a key / mouse button / wheel (Escape clears) |
 
 There is one standard layout: action bars centered at the bottom, pet and stance bars below bar 1, xp bar on top of bar 2, the player cast bar above that, then player and target frames with the cooldown manager between them, damage meter left and minimap right of the bars (bars 3 and 4 in between, same height), tracker top right, Modern UI chat window (own tabs) bottom left edge to edge with the combat log mirrored bottom right. The wizard toggles what Modern UI takes over; "Reset to defaults" restores the layout. Profiles can be shared between characters.
 
@@ -27,10 +28,18 @@ There is one standard layout: action bars centered at the bottom, pet and stance
 - TOC lists several interface versions; bump `## Interface:` when a new patch lands.
 
 - Food & Water: keeps global macros `Food` / `Water` (`#showtooltip` + `/use item:ID`) on the best consumable in your bags, ranked by a user-ordered stat priority (attack power, spell power, ...), then buff size, restore size, item level. Stats come from the item tooltip; macros are only edited out of combat. Settings page: Food & Water.
+- Data texts: one strip with gold, durability (chat warning under 20%), bag slots, frame rate / latency and a clock.
+- Vendor: sells junk and repairs when a merchant opens. Fast loot takes everything at once when auto loot is on. AFK screen dims the display with a timer.
+- Action bars: swing timer on Attack, shot timer and ammunition count on Auto Shot / Shoot, item / reagent counts turn red when low.
+- Shaman totem bar: one secure button per element with the active totem's timer; left-click recasts the last totem of that element, right-click dismisses it.
+- Temporary weapon enchants (poisons, stones, weapon buffs) with time left. Item level on equipment in bags and on the character frame, equipment set marker, new item outline, junk section value.
+- Unit frames: incoming heals on the health bar, optional "only debuffs I can dispel" filter per frame.
+- Profiles can be exported / imported as text (Profiles page). The import is a plain parser: no code is run, and values of the wrong type are dropped.
+- Chat: web addresses are clickable and open a copy box. Loot roll frames sit on a movable anchor. BigWigs gets a "Modern UI" bar style, DBM timer bars are restyled (both untested: neither addon was installed while writing).
 - Damage meter: own window drawn from Blizzard's `C_DamageMeter` data (secret-safe). Cooldown manager: Blizzard's viewers are positioned and skinned, not rebuilt.
 
 ## Target client
-Built for **WoW Forever** (game type `camelot`, 12.1 engine with vanilla content, interface `16001`). Combo points show on the target frame, bar 1 pages by stance/form offset (page 6 + offset) for every class, and the shaman totem bar is left to Blizzard.
+Built for **WoW Forever** (game type `camelot`, 12.1 engine with vanilla content, interface `16001`). Combo points show on the target frame, bar 1 pages by stance/form offset (page 6 + offset) for every class. Shamans get a Modern UI totem bar (Totems.lua).
 
 ## Status
 Written without access to a game client: syntax-checked and smoke-tested against a stub API only. Expect small in-game fixes. Report Lua errors (`/console scriptErrors 1`).

@@ -28,6 +28,12 @@ Minimap.lua
 Tracker.lua
 APR.lua
 DataBars.lua
+DataTexts.lua
+Misc.lua
+ItemInfo.lua
+Totems.lua
+KeyBind.lua
+BossMods.lua
 Chat.lua
 Tooltip.lua
 Nameplates.lua

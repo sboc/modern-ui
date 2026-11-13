@@ -666,7 +666,7 @@ local generic = {
       sweep = function(frame) lightenAll(frame, "npc") end },
     { key = "loot", label = "Loot and group loot windows",
       frames = { "LootFrame", "GroupLootFrame1", "GroupLootFrame2", "GroupLootFrame3", "GroupLootFrame4",
-                 "MasterLooterFrame", "BonusRollFrame" },
+                 "MasterLooterFrame", "BonusRollFrame", "GroupLootHistoryFrame", "LootHistoryFrame" },
       buttons = { { "LootButton%d", 4 }, { "GroupLootFrame%dIconFrame", 4 } },
       kill = { { "LootButton%dNameFrame", 4 } },
       extra = function(frame, key) lootRoll(frame, key) end },
@@ -870,6 +870,35 @@ function SK:RequestRestyle()
     end)
 end
 
+----------------------------------------------------------------------
+-- Group loot roll frames: Blizzard stacks them in GroupLootContainer and re-anchors that with its
+-- alert frames. The container is pinned to a Modern UI anchor instead (movable with /mui unlock).
+----------------------------------------------------------------------
+local lootAnchor
+local lootPinning = false
+
+local function pinLootRolls()
+    local c = _G.GroupLootContainer
+    if not (lootAnchor and type(c) == "table" and cfg().enabled and cfg().lootMover) then return end
+    if lootPinning or InCombatLockdown() and c:IsProtected() then return end
+    lootPinning = true
+    pcall(function()
+        c:ClearAllPoints()
+        c:SetPoint("TOP", lootAnchor, "TOP", 0, 0)
+    end)
+    lootPinning = false
+end
+
+local function setupLootMover()
+    local c = _G.GroupLootContainer
+    if lootAnchor or type(c) ~= "table" or not c.SetPoint then return end
+    lootAnchor = CreateFrame("Frame", "ModernUILootRollAnchor", UIParent)
+    lootAnchor:SetSize(260, 60)
+    ns.Mover:Register("lootroll", lootAnchor, "Loot Rolls")
+    c.ignoreFramePositionManager = true
+    hooksecurefunc(c, "SetPoint", function() if not lootPinning then pinLootRolls() end end)
+end
+
 local function hookAll()
     for _, t in ipairs(targets) do
         for _, name in ipairs(t.frames) do hookFrame(t, _G[name]) end
@@ -913,5 +942,10 @@ function SK:Apply()
     end
     if not started then self:Start() end
     hookAll()
+    if cfg().lootMover then
+        setupLootMover()
+        ns.Mover:Position("lootroll")
+        pinLootRolls()
+    end
     self:RequestRestyle()
 end

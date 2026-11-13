@@ -544,6 +544,28 @@ local function hideBlizzard(plate)
                 pcall(hooksecurefunc, sel, "SetShown", function(self, shown) if shown then again(self) end end)
             end
         end
+        -- Blizzard's cast bar is shown / faded by its own code on every cast and can ignore the UnitFrame's alpha:
+        -- its (taller) dark background then shows behind our cast bar. Pin it to alpha 0 while we own the plate.
+        for _, key in ipairs({ "castBar", "CastBar" }) do
+            local cb = uf[key]
+            if type(cb) == "table" and cb.SetAlpha and not (cb.IsForbidden and cb:IsForbidden()) then
+                if cb.SetIgnoreParentAlpha then pcall(cb.SetIgnoreParentAlpha, cb, false) end
+                cb:SetAlpha(0)
+                if not hookedAlpha[cb] then
+                    hookedAlpha[cb] = true
+                    local busy = false
+                    local function zero(self)
+                        if busy or not owned[uf] then return end
+                        busy = true
+                        self:SetAlpha(0)
+                        busy = false
+                    end
+                    pcall(hooksecurefunc, cb, "SetAlpha", function(self, a) if a ~= 0 then zero(self) end end)
+                    pcall(hooksecurefunc, cb, "Show", zero)
+                    pcall(hooksecurefunc, cb, "SetShown", function(self, shown) if shown then zero(self) end end)
+                end
+            end
+        end
         if not hookedAlpha[uf] then
             hookedAlpha[uf] = true
             local locked = false
@@ -567,6 +589,10 @@ local function reclaimBlizzard(plate)
             parked[auras] = nil
             pcall(auras.SetAlpha, auras, 1)
             if auras:GetParent() == offscreen then auras:SetParent(uf) end
+        end
+        for _, key in ipairs({ "castBar", "CastBar" }) do
+            local cb = uf[key]
+            if type(cb) == "table" and cb.SetAlpha and not (cb.IsForbidden and cb:IsForbidden()) then cb:SetAlpha(1) end
         end
         uf:SetAlpha(1)
     end)

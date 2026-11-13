@@ -462,8 +462,28 @@ local function makeSmallButton(parent, label, x, onClick)
     return b
 end
 
+-- web addresses become a clickable link (own "addon" link type); a click opens a box to copy it from
+local function linkify(text)
+    if not cfg().urls or type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then return text end
+    if not text:find("://", 1, true) and not text:find("www.", 1, true) then return text end
+    local function wrap(url) return "|Haddon:modernui:" .. url .. "|h|cff4dd2ff[" .. url .. "]|r|h" end
+    text = text:gsub("https?://[^%s|]+", wrap)
+    text = text:gsub("(%s)(www%.[%w_%-]+%.[^%s|]+)", function(sp, url) return sp .. wrap(url) end)
+    text = text:gsub("^(www%.[%w_%-]+%.[^%s|]+)", wrap)
+    return text
+end
+
+local function urlClick(link)
+    local url = type(link) == "string" and link:match("^addon:modernui:(.+)$")
+    if not url then return false end
+    UI.Prompt("Copy the address (Ctrl+C)", url)
+    return true
+end
+
 local function push(text, r, g, b, id, event, t)
     if text == nil then return end
+    local okLink, linked = pcall(linkify, text)
+    if okLink then text = linked end
     local e = { text = text, r = r or 1, g = g or 1, b = b or 1, id = id, cat = classify(event), t = t or time() }
     buffer[#buffer + 1] = e
     if #buffer > MAX_KEEP + 100 then
@@ -630,6 +650,7 @@ local function buildPanels()
         end
     end)
     smf:SetScript("OnHyperlinkClick", function(_, link, text, button)
+        if urlClick(link) then return end
         pcall(SetItemRef, link, text, button, _G.ChatFrame1)
     end)
     smf:SetScript("OnHyperlinkEnter", function(self, link)
@@ -674,6 +695,7 @@ local function buildPanels()
         for _ = 1, (IsShiftKeyDown() and 8 or 3) do if delta > 0 then self:ScrollUp() else self:ScrollDown() end end
     end)
     smf2:SetScript("OnHyperlinkClick", function(_, link, text, button)
+        if urlClick(link) then return end
         pcall(SetItemRef, link, text, button, _G.ChatFrame1)
     end)
     smf2:SetScript("OnHyperlinkEnter", function(self, link)
@@ -710,6 +732,7 @@ local function buildPanels()
         for _ = 1, (IsShiftKeyDown() and 8 or 3) do if delta > 0 then self:ScrollUp() else self:ScrollDown() end end
     end)
     cmf:SetScript("OnHyperlinkClick", function(_, link, text, button)
+        if urlClick(link) then return end
         pcall(SetItemRef, link, text, button, _G.ChatFrame1)
     end)
     cmf:SetScript("OnHyperlinkEnter", function(self, link)

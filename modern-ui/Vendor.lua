@@ -196,6 +196,19 @@ function V:SellJunk()
     step()
 end
 
+-- Repairs everything when a repair merchant opens (own gold only).
+function V:Repair()
+    if not (merchantOpen and CanMerchantRepair and CanMerchantRepair()) then return end
+    local ok, cost, can = pcall(GetRepairAllCost)
+    if not ok or type(cost) ~= "number" or cost <= 0 or not can then return end
+    if cost > (GetMoney and GetMoney() or 0) then
+        ns:Print(string.format("Not enough gold to repair (%s needed).", money(cost)))
+        return
+    end
+    pcall(RepairAllItems, false)
+    if cfg().summary then ns:Print(string.format("Repaired for %s.", money(cost))) end
+end
+
 -- Trash button: points out the gray items worth less than a set price (value of the whole stack), for when no
 -- merchant is around - everything else in the bags is dimmed until the button is clicked again. Protected items
 -- are never marked. It cannot delete them itself: DeleteCursorItem is protected on this client, so a call from an
@@ -371,6 +384,7 @@ function V:Init()
     ns:On("MERCHANT_SHOW", function()
         merchantOpen = true
         if ns.db and cfg().autoSellJunk then C_Timer.After(0.2, function() V:SellJunk() end) end
+        if ns.db and cfg().autoRepair then C_Timer.After(0.4, function() V:Repair() end) end
     end)
     ns:On("MERCHANT_CLOSED", function() merchantOpen = false; selling = false end)
     ns:On("BANKFRAME_OPENED", function() bankOpen = true; createDepositButton() end)
@@ -378,3 +392,4 @@ function V:Init()
 end
 
 V.ProtectedNames = protectedList
+V.SellPrice = sellPrice

@@ -63,6 +63,7 @@ local frameBase = {
     growUp = false,        -- party / boss only
     horizontal = false,    -- party / boss only: lay the frames out in a row
     aboveLift = 0,         -- extra room above the frame for cast bar / auras (a frame stacked above it)
+    onlyDispellable = false,   -- debuffs: only the ones you can dispel
 }
 
 local viewerBase = { enabled = true, scale = 0.85, alpha = 1 }
@@ -81,6 +82,12 @@ ns.defaults = {
         iconZoom = true,
         borders = true,
         swingTimer = true,
+        rangedTimer = true,    -- the same countdown on the Auto Shot / Shoot button
+        swingBar = false,      -- the running swing / shot timer as a bar of its own
+        swingBarWidth = 220, swingBarHeight = 4,
+        ammoCount = true,      -- ammunition left, on the Auto Shot button
+        ammoWarn = 200,        -- ammunition count turns red below this (0 = never)
+        lowCount = 5,          -- item / reagent counts on the bars turn red at or below this (0 = never)
         autoRank = false,      -- classic: replace spells on the bars with their highest known rank
         bars = {
             [1] = merge(barBase),
@@ -119,6 +126,7 @@ ns.defaults = {
         enabled = true, skin = true, bgAlpha = 0.88, move = true, width = 500, height = 220,
         fontSize = 16, hideButtons = true, timestamps = "%H:%M ", arrowKeys = true,
         combatLog = true, combatLogDone = false,
+        urls = true,   -- web addresses in chat become clickable (opens a copy box)
         fadeDelay = 15, fadeAlpha = 0.2,   -- idle fade: seconds without activity (0 = never), faded opacity
         systemRight = true,   -- loot / system lines live in the right window only
         custom = true,   -- our own chat window (Blizzard's ChatFrame1 keeps routing the messages invisibly)
@@ -157,7 +165,7 @@ ns.defaults = {
                    movable = true, positions = {} },
     custombags = { enabled = false, bank = true, columns = 10, slotSize = 36, showNew = true,
                    sections = {}, pins = {}, collapsed = {} },   -- bank: grouped bank window too; own sections, itemID -> section key, collapsed sections
-    vendor = { autoSellJunk = true, summary = true, protected = {}, trashMax = 100 },   -- protected: itemID -> true, selling asks first; trashMax: Trash button highlights gray stacks worth less (copper)
+    vendor = { autoSellJunk = true, autoRepair = true, summary = true, protected = {}, trashMax = 100 },   -- protected: itemID -> true, selling asks first; trashMax: Trash button highlights gray stacks worth less (copper)
     consumables = {
         enabled = true,    -- keep the Food / Water / Health Potion macros pointed at the best item in the bags
         announce = true,   -- print when the pick changes
@@ -169,7 +177,17 @@ ns.defaults = {
     },
     skins = { enabled = true, character = true, spellbook = true, worldmap = true, gamemenu = true, npc = true, loot = true,
               social = true, bank = true, groupfinder = true, collections = true, services = true, taxi = true, breath = true, bubbles = true,
-              bgAlpha = 0.92, qualityColors = true },
+              bgAlpha = 0.92, qualityColors = true,
+              bossmods = true,     -- BigWigs bar style / DBM timer bars
+              lootMover = true },  -- group loot roll frames sit on a Modern UI anchor
+    misc = { fastLoot = true, afkScreen = true },
+    datatexts = { enabled = true, scale = 1, alpha = 1, fontSize = 0, background = true,
+                  width = 620,   -- fixed strip width (the action bar stack's); 0 = as wide as its texts
+                  gold = true, fps = true, durability = true, bags = true, clock = false,
+                  class = true, seen = {} },   -- class: ammunition / reagents; seen: reagent label -> carried at least once
+    iteminfo = { enabled = true, character = true, bags = true, sets = true, newGlow = true },
+    totems = { enabled = true, size = 32, spacing = 3, scale = 1, last = {} },   -- last: slot -> spell the slot's button casts
+    weaponenchants = { enabled = true, size = 24 },
     unitframes = {
         enabled = true,
         classColor = true,
@@ -177,6 +195,7 @@ ns.defaults = {
         smooth = true,
         healthTextFormat = "CURRENT_PERCENT",
         showBlizzardAuras = false,   -- Blizzard's own buff / debuff window
+        healPrediction = true,       -- incoming heals drawn past the end of the health bar
         focusCast = { enabled = true, height = 18 },   -- focus cast bar stacked on the player cast bar
         frames = {
             -- player / target are 200 wide: they sit over the left / right ends of the stack, above the focus / target of target row
@@ -257,6 +276,7 @@ ns.defaults.positions = {
     cdm_utility = pos("BOTTOM", 0, 298),
     cdm_buffs = pos("BOTTOM", 0, 338),
     cdm_bars = pos("BOTTOM", 0, 380),
+    swingbar = pos("BOTTOM", 0, 293),   -- in the 6 px gap between the Essential (top 292) and Utility (298) rows
 
     minimap = pos("BOTTOM", 499, 40),
     tracker = pos("TOPRIGHT", -12, -12),
@@ -267,4 +287,8 @@ ns.defaults.positions = {
     menu_bags = pos("BOTTOMRIGHT", -10, 48),
     databar_xp = pos("BOTTOM", 0, 144),
     databar_rep = pos("BOTTOM", 0, 151),
+    datatexts = pos("TOP", 0, -4),
+    totembar = pos("BOTTOM", 0, 6),          -- the pet / stance bar spot (shamans have neither)
+    weaponenchant = pos("BOTTOM", -350, 338),   -- on top of the focus frame
+    lootroll = pos("TOP", 0, -160),
 }

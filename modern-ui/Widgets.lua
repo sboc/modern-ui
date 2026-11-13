@@ -387,6 +387,8 @@ function UI.Prompt(title, default, onAccept)
     prompt:Show()
     prompt:Raise()
     prompt.edit:SetFocus()
+    prompt.edit:HighlightText()
+    prompt.edit:SetCursorPosition(0)
 end
 
 local confirm

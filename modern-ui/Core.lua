@@ -339,7 +339,7 @@ function ns.GetAuraAt(unit, idx, filter, isBuff)
     end
 end
 
-ns.applyAlias = { menus = "menubars" }
+ns.applyAlias = { menus = "menubars", weaponenchants = "misc" }
 
 function ns:Apply(name)
     name = ns.applyAlias[name] or name
@@ -492,6 +492,123 @@ function ns:ResetProfile()
 end
 
 ----------------------------------------------------------------------
+-- Profile export / import: a profile as one line of text ("MUI1:...").
+-- Only the settings that differ from the defaults are written. The reader is a plain parser (no code is
+-- ever run) that only produces tables, strings, numbers and booleans.
+--   value = "T" | "F" | "N" number ";" | "S" escaped ";" | "{" (key value)* "}"
+----------------------------------------------------------------------
+local EXPORT_PREFIX = "MUI1:"
+local MAX_IMPORT, MAX_DEPTH = 200000, 12
+
+local function escape(s)
+    return (s:gsub("[^%w%.%-_]", function(c) return string.format("%%%02X", c:byte()) end))
+end
+
+local function serialize(v, out)
+    local t = type(v)
+    if t == "boolean" then out[#out + 1] = v and "T" or "F"
+    elseif t == "number" then out[#out + 1] = "N" .. string.format("%.10g", v) .. ";"
+    elseif t == "string" then out[#out + 1] = "S" .. escape(v) .. ";"
+    elseif t == "table" then
+        out[#out + 1] = "{"
+        for k, val in pairs(v) do
+            local kt, vt = type(k), type(val)
+            if (kt == "string" or kt == "number") and (vt == "table" or vt == "string" or vt == "number" or vt == "boolean") then
+                serialize(k, out)
+                serialize(val, out)
+            end
+        end
+        out[#out + 1] = "}"
+    end
+end
+
+-- returns value, next position; errors on malformed input (callers pcall)
+local function parse(s, i, depth)
+    local c = s:sub(i, i)
+    if c == "T" then return true, i + 1 end
+    if c == "F" then return false, i + 1 end
+    if c == "N" or c == "S" then
+        local stop = s:find(";", i + 1, true)
+        if not stop then error("unterminated value") end
+        local body = s:sub(i + 1, stop - 1)
+        if c == "N" then
+            local n = tonumber(body)
+            if not n or n ~= n or n == math.huge or n == -math.huge then error("bad number") end
+            return n, stop + 1
+        end
+        return (body:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)), stop + 1
+    end
+    if c == "{" then
+        if depth >= MAX_DEPTH then error("too deep") end
+        local t = {}
+        i = i + 1
+        while s:sub(i, i) ~= "}" do
+            if i > #s then error("unterminated table") end
+            local k, v
+            k, i = parse(s, i, depth + 1)
+            if type(k) ~= "string" and type(k) ~= "number" then error("bad key") end
+            v, i = parse(s, i, depth + 1)
+            t[k] = v
+        end
+        return t, i + 1
+    end
+    error("unexpected character")
+end
+
+-- what differs from the defaults
+local function diff(t, d)
+    local out = {}
+    for k, v in pairs(t) do
+        local dv
+        if type(d) == "table" then dv = d[k] end
+        if type(v) == "table" then
+            local sub = diff(v, dv)
+            if next(sub) ~= nil or type(dv) ~= "table" then out[k] = sub end
+        elseif v ~= dv then
+            out[k] = v
+        end
+    end
+    return out
+end
+
+-- drop imported values whose type does not match the default at the same place
+local function sanitize(t, d)
+    for k, v in pairs(t) do
+        local dv = d[k]
+        if dv ~= nil and type(dv) ~= type(v) then
+            t[k] = nil
+        elseif type(v) == "table" and type(dv) == "table" then
+            sanitize(v, dv)
+        end
+    end
+end
+
+function ns:ExportProfile()
+    local data = diff(self.db, ns.defaults)
+    data.dbVersion = self.db.dbVersion
+    local out = {}
+    serialize(data, out)
+    return EXPORT_PREFIX .. table.concat(out)
+end
+
+-- Creates profile `name` from an export string. Returns true, or false and a reason.
+function ns:ImportProfile(name, text)
+    if type(name) ~= "string" or name == "" or ModernUIDB.profiles[name] then
+        return false, "invalid or duplicate profile name"
+    end
+    text = type(text) == "string" and text:gsub("%s+", "") or ""
+    if text:sub(1, #EXPORT_PREFIX) ~= EXPORT_PREFIX then return false, "not a Modern UI profile string" end
+    if #text > MAX_IMPORT then return false, "the string is too long" end
+    local body = text:sub(#EXPORT_PREFIX + 1)
+    local ok, data, pos = pcall(parse, body, 1, 0)
+    if not ok or type(data) ~= "table" or pos ~= #body + 1 then return false, "the string is damaged" end
+    sanitize(data, ns.defaults)
+    if type(data.dbVersion) ~= "number" then data.dbVersion = nil end
+    ModernUIDB.profiles[name] = data
+    return true
+end
+
+----------------------------------------------------------------------
 -- Lifecycle
 ----------------------------------------------------------------------
 ns:On("ADDON_LOADED", function(_, name)
@@ -546,6 +663,8 @@ SlashCmdList["MODERNUI"] = function(msg)
         end)
     elseif cmd == "reload" or cmd == "rl" then
         ReloadUI()
+    elseif cmd == "kb" or cmd == "bind" or cmd == "keybind" then
+        if ns.KeyBind then ns.KeyBind:Toggle() end
     elseif cmd == "unlock" or cmd == "move" then
         ns.Mover:Unlock()
     elseif cmd == "lock" then
@@ -604,6 +723,6 @@ SlashCmdList["MODERNUI"] = function(msg)
     elseif cmd == "chat" and ns.Chat and ns.Chat.Debug then
         ns.Chat:Debug()
     else
-        ns:Print("Commands: /mui (config), /mui wizard, /mui unlock, /mui lock, /mui reset, /mui reload, /mui test party, /mui chat (chat diagnostics)")
+        ns:Print("Commands: /mui (config), /mui wizard, /mui unlock, /mui lock, /mui kb (hover key binding), /mui reset, /mui reload, /mui test party, /mui chat (chat diagnostics)")
     end
 end
