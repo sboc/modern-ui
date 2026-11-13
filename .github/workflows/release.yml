@@ -38,6 +38,22 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      - name: Write changelog
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # Written here instead of by the packager so co-author trailers
+          # stay out of it; .pkgmeta points the packager at this file.
+          prev=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          {
+            echo "## $TAG"
+            echo
+            git log "${prev:+$prev..}$TAG" --pretty=format:'###%B' \
+              | sed -e '/^[Cc]o-[Aa]uthored-[Bb]y:/d' -e 's/\[skip ci\]//g' \
+                    -e 's/^/    /' \
+                    -e 's/^ *$//' -e 's/^    ###/- /' -e '/^$/d'
+          } > CHANGELOG.md
+
       - name: Package and upload
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}

@@ -4,6 +4,11 @@ package-as: modern-ui
 move-folders:
   modern-ui/modern-ui: modern-ui
 
+# Written by the release workflow from the commits since the previous tag.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
 ignore:
   - README.md
   - curseforge-description.md
