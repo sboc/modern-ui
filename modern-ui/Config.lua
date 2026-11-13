@@ -263,6 +263,7 @@ local function bagWindowOptions()
         Header("Vendor"),
         Check("vendor.autoSellJunk", "Automatically sell gray (junk) items when a merchant opens"),
         Check("vendor.autoRepair", "Automatically repair when a repair merchant opens"),
+        Check("vendor.guildRepair", "Pay for repairs from the guild bank when it allows it (own gold otherwise)"),
         Check("vendor.summary", "Print what was sold / repaired and for how much"),
         Text("Sold items can be bought back from the merchant's buyback tab."),
         Text("Protect an item (a skinning knife, say): Alt+click it in your bags. Selling it by right-clicking at a merchant then asks for confirmation, and auto sell skips it. Alt+click again to remove. Also: /mui protect [shift-click an item]."),

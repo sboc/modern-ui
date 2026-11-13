@@ -196,17 +196,41 @@ function V:SellJunk()
     step()
 end
 
--- Repairs everything when a repair merchant opens (own gold only).
-function V:Repair()
-    if not (merchantOpen and CanMerchantRepair and CanMerchantRepair()) then return end
-    local ok, cost, can = pcall(GetRepairAllCost)
-    if not ok or type(cost) ~= "number" or cost <= 0 or not can then return end
+-- Repairs everything when a repair merchant opens. With vendor.guildRepair the guild bank pays when the character is
+-- allowed to repair from it and the allowance covers the cost; own gold pays otherwise, and also when the guild
+-- repair did not go through (checked a moment later: anything still damaged is paid for from own gold).
+local function repairOwn(cost)
     if cost > (GetMoney and GetMoney() or 0) then
         ns:Print(string.format("Not enough gold to repair (%s needed).", money(cost)))
         return
     end
     pcall(RepairAllItems, false)
     if cfg().summary then ns:Print(string.format("Repaired for %s.", money(cost))) end
+end
+
+local function repairCost()
+    if not (merchantOpen and CanMerchantRepair and CanMerchantRepair()) then return end
+    local ok, cost, can = pcall(GetRepairAllCost)
+    if ok and type(cost) == "number" and cost > 0 and can then return cost end
+end
+
+local function guildCanPay(cost)
+    if not (cfg().guildRepair and IsInGuild and IsInGuild() and CanGuildBankRepair and CanGuildBankRepair()) then return false end
+    local ok, limit = pcall(GetGuildBankWithdrawMoney)
+    -- a negative allowance means unlimited (guild master)
+    return ok and type(limit) == "number" and (limit < 0 or limit >= cost)
+end
+
+function V:Repair()
+    local cost = repairCost()
+    if not cost then return end
+    if not guildCanPay(cost) then return repairOwn(cost) end
+    pcall(RepairAllItems, true)
+    C_Timer.After(0.5, function()
+        local left = repairCost()
+        if left then return repairOwn(left) end
+        if merchantOpen and cfg().summary then ns:Print(string.format("Repaired for %s (guild bank).", money(cost))) end
+    end)
 end
 
 -- Trash button: points out the gray items worth less than a set price (value of the whole stack), for when no

@@ -628,8 +628,9 @@ function Window:Refresh(force)
         if combat then
             ns:AfterCombat("custombags-" .. self.spec.key, function() self.lastSig = nil self:Refresh() end)
         else
-            self.lastSig = sig
+            -- recorded only once the layout went through, so a failed one is tried again on the next refresh
             layout(self, groups, free)
+            self.lastSig = sig
         end
     end
 
@@ -884,9 +885,19 @@ local function openBank()
     end
 end
 
+-- The first visit after login asks the server for the bank's contents: they arrive a moment after the bank opens,
+-- and not always with an event this window listens to. Look again a few times while the bank stays open.
+local bankVisit = 0
 local function onBankOpened()
     bankOpen, blizzBank = true, false
     openBank()
+    bankVisit = bankVisit + 1
+    local visit = bankVisit
+    for _, delay in ipairs({ 0.1, 0.3, 0.7, 1.5, 3 }) do
+        C_Timer.After(delay, function()
+            if bankOpen and visit == bankVisit then bank:RequestRefresh() end
+        end)
+    end
 end
 
 local function onBankClosed()
