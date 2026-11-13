@@ -75,7 +75,13 @@ local function updateAfk()
     ns:SetFont(afk.title, 40, "OUTLINE")
     ns:SetFont(afk.timer, 28, "OUTLINE")
     ns:SetFont(afk.clock, 18, "OUTLINE")
-    afk.title:SetText((UnitName("player") or "") .. "  -  AFK")
+    -- Each time, a coin flip between the plain name and "Mr"/"Mrs" in front of it.
+    local name = UnitName("player") or ""
+    local sex = UnitSex("player") -- 2 male, 3 female
+    if (sex == 2 or sex == 3) and math.random(2) == 1 then
+        name = (sex == 3 and "Mrs " or "Mr ") .. name
+    end
+    afk.title:SetText(name .. "  -  AFK")
     afk.since = GetTime()
     afk:Show()
 end
