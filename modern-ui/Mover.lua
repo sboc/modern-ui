@@ -42,12 +42,21 @@ end
 -- Every Modern UI frame grows with the global scale, so offsets from the screen edges / center grow with it
 -- too: the layout keeps its proportions and nothing starts to overlap. Defaults are designed for scale 1;
 -- a saved position remembers the global scale it was made at (g) and is stretched from there.
+-- The default spot for this screen shape: the standard layout is made for ultrawide; narrower screens
+-- (16:9, 16:10, ...) take the few positions in ns.narrowPositions instead.
+local function defaultPosition(key)
+    if ns.AspectLabel() ~= "ultrawide" and ns.narrowPositions[key] then return ns.narrowPositions[key] end
+    return ns.defaults.positions[key]
+end
+
 function Mover:GetPosition(key)
     local g = (ns.db.general and ns.db.general.scale) or 1
     local saved = ns.db.positions[key]
-    local d = ns.defaults.positions[key]
-    -- older "reset" buttons stored a copy of the defaults: those are defaults, not user choices
-    if saved and d and not saved.g and saved.point == d.point and saved.x == d.x and saved.y == d.y then saved = nil end
+    local std = ns.defaults.positions[key]
+    -- copies of the standard defaults (merged into every profile, or stored by older "reset" buttons)
+    -- are defaults, not user choices
+    if saved and std and not saved.g and saved.point == std.point and saved.x == std.x and saved.y == std.y then saved = nil end
+    local d = defaultPosition(key)
     if saved then
         if not saved.g then saved.g = g end   -- saved before scale tracking: take it as made at the current scale
         local k = g / saved.g

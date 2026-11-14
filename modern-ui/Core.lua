@@ -160,12 +160,35 @@ end
 -- size of the game's UI area in UI units
 function ns.UIArea() return UIParent:GetWidth(), UIParent:GetHeight() end
 
--- global Modern UI scale that makes the default layout fill the UI area as designed (clamped to the slider range)
-function ns.SuggestScale()
+-- global Modern UI scale that makes the default layout fill the UI area as designed (clamped to the slider range);
+-- factor sizes it up or down from there (see ns.SIZES)
+function ns.SuggestScale(factor)
     local w, h = ns.UIArea()
-    local s = math.min(w / REF_W, h / REF_H)
+    local s = math.min(w / REF_W, h / REF_H) * (factor or 1)
     s = math.floor(s / 0.05 + 0.5) * 0.05
     return math.max(0.6, math.min(2, s))
+end
+
+-- size presets on top of the fitted scale. Large still leaves room between the bottom bars and the
+-- chat windows on a 16:9 screen (the chat windows do not grow with the scale).
+ns.SIZES = {
+    { label = "Small", factor = 0.85 },
+    { label = "Medium", factor = 1 },
+    { label = "Large", factor = 1.15 },
+}
+
+-- one button per size preset, made with the given options button builder; after() runs once the scale is set
+function ns.SizeButtons(Button, after)
+    local list = {}
+    for _, size in ipairs(ns.SIZES) do
+        local scale = ns.SuggestScale(size.factor)
+        list[#list + 1] = Button(string.format("%s (scale %.2f)", size.label, scale), function()
+            ns.db.general.scale = ns.SuggestScale(size.factor)
+            ns:ApplyAll()
+            if after then after() end
+        end, 200)
+    end
+    return list
 end
 
 function ns.AspectLabel()
@@ -366,6 +389,11 @@ function ns:CharKey()
     return (UnitName("player") or "?") .. "-" .. (GetRealmName() or "?")
 end
 
+-- Name of the profile a character gets of its own: the character name, without the realm
+function ns:CharProfileName()
+    return UnitName("player") or "?"
+end
+
 function ns:InitDB()
     -- addon was called MolUI before: adopt its saved settings once
     if not ModernUIDB and MolUIDB then
@@ -384,7 +412,34 @@ function ns:SelectProfile(name, skipApply)
     self.db = ModernUIDB.profiles[name]
     ns.Defaults(self.db, ns.defaults)
     self:Migrate()
-    if not skipApply then self:ApplyAll() end
+    if not skipApply then
+        self:ApplyAll()
+        self:CheckSetup()
+    end
+end
+
+-- A profile that has not been through the setup wizard yet (new character, new empty profile, reset)
+-- starts it, so the modules to use get picked one step at a time.
+-- A new character's first login plays the intro cinematic, which closes open windows (the wizard too):
+-- wait until no cinematic or movie is playing.
+local function cinematicPlaying()
+    return (InCinematic and InCinematic()) or (IsInCinematicScene and IsInCinematicScene())
+        or (CinematicFrame and CinematicFrame:IsShown()) or (MovieFrame and MovieFrame:IsShown()) or false
+end
+
+local setupPending = false
+function ns:CheckSetup()
+    if self.db.setupVersion == self.SETUP_VERSION or setupPending then return end
+    setupPending = true
+    local function attempt()
+        if cinematicPlaying() then C_Timer.After(1, attempt) return end
+        ns:AfterCombat("wizard", function()
+            setupPending = false
+            local w = ns.Wizard
+            if ns.db.setupVersion ~= ns.SETUP_VERSION and not (w.win and w.win:IsShown()) then w:Show() end
+        end)
+    end
+    C_Timer.After(1.5, attempt)
 end
 
 ns.DB_VERSION = 44
@@ -489,6 +544,7 @@ function ns:ResetProfile()
     ns.Defaults(fresh, ns.defaults)
     fresh.dbVersion = ns.DB_VERSION
     self:ApplyAll()
+    self:CheckSetup()
 end
 
 ----------------------------------------------------------------------
@@ -616,20 +672,15 @@ ns:On("ADDON_LOADED", function(_, name)
 end)
 
 ns:On("PLAYER_LOGIN", function()
-    local key = ns:CharKey()
-    local profile = ModernUIDB.profileKeys[key] or "Default"
-    ns:SelectProfile(profile, true)
+    -- a character seen for the first time starts on its own profile (named after it);
+    -- characters that already have one keep it
+    ns:SelectProfile(ModernUIDB.profileKeys[ns:CharKey()] or ns:CharProfileName(), true)
 
     for _, m in ipairs(ns.moduleList) do
         if m.Init then xpcall(m.Init, geterrorhandler(), m) end
     end
     ns:ApplyAll()
-
-    if ns.db.setupVersion ~= ns.SETUP_VERSION then
-        C_Timer.After(1.5, function()
-            ns:AfterCombat("wizard", function() ns.Wizard:Show() end)
-        end)
-    end
+    ns:CheckSetup()
 end)
 
 -- UI scale / resolution changes: re-seat everything.

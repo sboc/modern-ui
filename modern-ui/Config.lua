@@ -42,13 +42,17 @@ ns.Options.OUTLINES, ns.Options.HEALTH_FORMATS = OUTLINES, HEALTH_FORMATS
 -- Pages
 ----------------------------------------------------------------------
 local function generalOptions()
-    return {
+    local o = {
         Header("Appearance"),
         Select("general.font", "Font", ns.media.fonts),
         Range("general.fontSize", "Font size", 8, 24, 1, px),
         Select("general.outline", "Font outline", OUTLINES),
         Select("general.texture", "Bar texture", ns.media.textures),
         Range("general.scale", "Global scale (all Modern UI frames)", 0.6, 2, 0.05, x2),
+        Text("Size presets for your screen: Medium fits it as designed."),
+    }
+    for _, b in ipairs(ns.SizeButtons(Button, function() Config:Refresh() end)) do o[#o + 1] = b end
+    for _, e in ipairs({
         Header("Tools"),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
         Button("Run setup wizard", function() Config:Hide(); ns.Wizard:Show() end),
@@ -60,13 +64,14 @@ local function generalOptions()
             end)
         end),
         Text("Slash commands: /mui, /mui wizard, /mui unlock, /mui lock, /mui kb, /mui reset, /mui reload"),
-    }
+    }) do o[#o + 1] = e end
+    return o
 end
 
 local function profileOptions()
     return {
         Header("Profiles"),
-        Text("Each character uses one profile. Characters can share a profile, or have their own."),
+        Text("Each character uses one profile. A new character starts on its own; characters can also share one."),
         { type = "select", label = "Active profile", values = function() return ns:ProfileList() end,
           get = function() return ns.profileName end,
           set = function(v) ns:SelectProfile(v) end },
@@ -99,7 +104,9 @@ local function profileOptions()
             end
             UI.Confirm("Delete profile '" .. ns.profileName .. "'?", function()
                 local old = ns.profileName
-                ns:SelectProfile("Default")
+                -- back to this character's own profile, or Default when that is the one going away
+                local own = ns:CharProfileName()
+                ns:SelectProfile(old ~= own and own or "Default")
                 ns:DeleteProfile(old)
                 ns:Print("Deleted profile " .. old)
             end)
@@ -400,7 +407,7 @@ local function trackerOptions()
         Range("tracker.bgAlpha", "Background opacity", 0, 1, 0.05, pct),
         Check("tracker.borders", "Draw a border around the panel"),
         Check("tracker.aprSkin", "Skin Azeroth Pilot Reloaded's guide panels the same way (turning it off needs a /reload)"),
-        Text("Max quests: the rest are untracked and come back when a slot frees up, the route reaches them, or the limit is set to 0. Quests you track by hand stay. Height: when attached, how far the tracker reaches above the chat window."),
+        Text("Max quests: the rest are untracked and come back when a slot frees up, the route reaches them, or the limit is set to 0. Quests you track by hand stay. Height: when attached, how far the tracker reaches above the chat window (with the minimap above it, the tracker starts right under the minimap instead)."),
         Range("tracker.maxQuests", "Max quests tracked (0 = all)", 0, 25, 1),
         Range("tracker.fontSize", "Objective text size (0 = leave as is)", 0, 24, 1),
         Check("tracker.overrideHeight", "Override tracker height"),

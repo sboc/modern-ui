@@ -3,7 +3,7 @@
 A complete, flat, modern replacement for the default WoW interface, built for **WoW Forever**.
 
 > ## ⚠️ Made for ultrawide monitors
-> Modern UI uses one fixed layout designed around an **ultrawide display (21:9 and wider)**. Action bars, unit frames, damage meter, minimap, chat and tracker are spread across the full screen width. **On a 16:9 or narrower screen, expect overlapping or cramped elements.** You can drag every element around with `/mui unlock`, but the defaults assume lots of horizontal space.
+> Modern UI's layout is designed around an **ultrawide display (21:9 and wider)**. Action bars, unit frames, damage meter, minimap, chat and tracker are spread across the full screen width. **On a 16:9 or similar screen**, the damage meter moves to the top left and the minimap to the top right, with the quest tracker under it, so nothing overlaps the chat windows. You can drag every element around with **/mui unlock**.
 
 ## What it replaces
 
@@ -20,10 +20,10 @@ A complete, flat, modern replacement for the default WoW interface, built for **
 ## Extras
 
 - **Setup wizard** on first load. Pick which parts of the UI Modern UI takes over.
-- **Full settings window** (`/mui`) and profiles that can be shared between characters.
-- **Move anything:** `/mui unlock` lets you drag frames, nudge them with the arrow keys, and right-click to reset one.
+- **Full settings window** (**/mui**) and profiles. Each new character starts on its own profile; profiles can also be shared between characters.
+- **Move anything:** **/mui unlock** lets you drag frames, nudge them with the arrow keys, and right-click to reset one.
 - **Smart bags and vendor tools:** a Trash button highlights gray items below a price you set, so you can drag them out; protected items are skipped.
-- **Food & Water macros:** keeps `Food` and `Water` macros on the best consumable in your bags, ranked by a stat priority you choose. Raw fish and crafting reagents are ignored.
+- **Food & Water macros:** keeps the "Food" and "Water" macros on the best consumable in your bags, ranked by a stat priority you choose. Raw fish and crafting reagents are ignored.
 - Optional **LibSharedMedia** support for extra fonts and textures.
 
 ## Commands
@@ -39,4 +39,4 @@ A complete, flat, modern replacement for the default WoW interface, built for **
 ## Notes
 
 - Built for the WoW Forever client only (interface 16001). Other clients are untested.
-- Written without access to a game client, so expect some small in-game bugs. If you see a Lua error, turn on `/console scriptErrors 1` and report it in the comments or issues.
+- If you see a Lua error, turn on **/console scriptErrors 1** and report it in the comments or issues.

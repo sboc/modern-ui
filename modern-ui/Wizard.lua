@@ -3,9 +3,8 @@ local UI = ns.UI
 local C = UI.colors
 local O = ns.Options
 
--- Setup wizard. Runs on first load (and again whenever SETUP_VERSION is
--- bumped), and can be started any time with /mui wizard to re-pick a
--- layout or reset to defaults.
+-- Setup wizard. Runs for every profile that has not been through it yet (first load, new profile,
+-- reset; again whenever SETUP_VERSION is bumped), and can be started any time with /mui wizard.
 local W = {}
 ns.Wizard = W
 
@@ -157,6 +156,29 @@ steps[5] = {
 }
 
 steps[6] = {
+    title = "Extras",
+    desc = "Smaller helpers. Pick the ones you want; each has more options in /mui.",
+    options = function()
+        return {
+            O.Header("Bags & vendors"),
+            O.Check("custombags.enabled", "Use one grouped bag window (replaces Blizzard's bags)"),
+            O.Check("iteminfo.enabled", "Show item details on item slots"),
+            O.Check("vendor.autoSellJunk", "Automatically sell gray (junk) items when a merchant opens"),
+            O.Check("vendor.autoRepair", "Automatically repair when a repair merchant opens"),
+            O.Header("Buffs & consumables"),
+            O.Check("consumables.enabled", "Keep the Food and Water macros on the best item in your bags"),
+            O.Check("buffreminder.enabled", "Remind me of missing buffs (druids: Mark of the Wild, Thorns)"),
+            O.Check("weaponenchants.enabled", "Show temporary weapon enchants with their time left"),
+            O.Check("totems.enabled", "Totem bar (shamans)"),
+            O.Header("Other"),
+            O.Check("datatexts.enabled", "Data text strip at the top of the screen"),
+            O.Check("misc.fastLoot", "Fast loot: take everything at once when auto loot is on"),
+            O.Check("misc.afkScreen", "Dim the screen and show a timer while you are AFK"),
+        }
+    end,
+}
+
+steps[7] = {
     title = "Appearance",
     desc = "Font and bar texture are shared by every bar and frame.",
     options = function()
@@ -196,11 +218,8 @@ local function displayStep()
             else
                 o[#o + 1] = O.Text("The global scale already fits your UI area.")
             end
-            o[#o + 1] = O.Button(string.format("Fit Modern UI to my screen (scale %.2f)", suggested), function()
-                ns.db.general.scale = suggested
-                ns:ApplyAll()
-                W:Render()
-            end, 300)
+            o[#o + 1] = O.Text("Medium fits your screen as designed. Small and Large size everything down or up from there.")
+            for _, b in ipairs(ns.SizeButtons(O.Button, function() W:Render() end)) do o[#o + 1] = b end
             o[#o + 1] = O.Range("general.scale", "Global scale", 0.6, 2, 0.05, O.x2)
 
             o[#o + 1] = O.Header("Sharp lines")
@@ -210,7 +229,7 @@ local function displayStep()
             elseif math.abs(uiScale - perfect) < 0.005 then
                 o[#o + 1] = O.Text("Blizzard's UI scale is already pixel-perfect: one UI unit is one screen pixel.")
             else
-                o[#o + 1] = O.Text(string.format("Optional: set Blizzard's own UI scale to %.3f so one UI unit is exactly one screen pixel. This is the Video > UI Scale setting, so it also changes the default UI and other addons. Run the fit button again afterwards.", perfect))
+                o[#o + 1] = O.Text(string.format("Optional: set Blizzard's own UI scale to %.3f so one UI unit is exactly one screen pixel. This is the Video > UI Scale setting, so it also changes the default UI and other addons. Pick a size again afterwards.", perfect))
                 o[#o + 1] = O.Button("Set pixel-perfect UI scale", function()
                     if InCombatLockdown() then ns:Print("Not in combat.") return end
                     local ok, now, want = ns.SetPerfectUIScale()
@@ -238,7 +257,7 @@ local function displayStep()
             end
 
             o[#o + 1] = O.Header("Positions")
-            o[#o + 1] = O.Text("Positions are saved relative to the nearest screen edge, so they survive resolution changes. After moving to a very different screen shape (for example 16:9 to ultrawide) you may want to start from the defaults again.")
+            o[#o + 1] = O.Text("Positions are saved relative to the nearest screen edge, so they survive resolution changes. Ultrawide and narrower screens (16:9 and similar) each have their own default layout; frames you have not moved follow the screen shape.")
             o[#o + 1] = O.Button("Reset all frame positions", function()
                 UI.Confirm("Reset every Modern UI frame position to the defaults?", function()
                     ns.db.positions = {}
@@ -251,7 +270,7 @@ local function displayStep()
 end
 table.insert(steps, 2, displayStep())
 
-steps[7] = {
+steps[#steps + 1] = {
     title = "All set",
     desc = "Modern UI is configured. Last step: put things exactly where you want them.",
     options = function()

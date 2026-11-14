@@ -552,6 +552,9 @@ function MM:Start()
     ns:On("LFG_QUEUE_STATUS_UPDATE", requestFlyoutLayout)
 end
 
+-- the minimap's box (nil while the Modern UI minimap is off)
+function MM:GetFrame() return holder end
+
 function MM:Apply()
     if not ns.db then return end
     local c = cfg()
@@ -605,5 +608,7 @@ function MM:Apply()
         updateZone()
         updateClock()
         ns.Mover:Position("minimap")
+        -- an attached tracker stops under the minimap when it sits above it: re-measure
+        if ns.Tracker and ns.Tracker.RequestPlace then ns.Tracker:RequestPlace() end
     end)
 end

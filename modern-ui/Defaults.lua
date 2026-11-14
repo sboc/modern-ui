@@ -294,3 +294,18 @@ ns.defaults.positions = {
     weaponenchant = pos("BOTTOM", -350, 338),   -- on top of the focus frame
     lootroll = pos("TOP", 0, -160),
 }
+
+----------------------------------------------------------------------
+-- Screens narrower than ultrawide (16:9, 16:10, ...): the bottom row does not fit between the chat
+-- windows, so the damage meter (party row under it) moves to the top left and the minimap to the
+-- top right, with the objective tracker under the minimap. Everything else stays where it is.
+--
+--  [ damage meter ]                                         [ minimap ]
+--  [ party        ]                                         [ tracker ]
+----------------------------------------------------------------------
+ns.narrowPositions = {
+    damagemeter = pos("TOPLEFT", 12, -12),
+    uf_party = pos("TOPLEFT", 12, -234),    -- 4 px under the damage meter (height 218)
+    minimap = pos("TOPRIGHT", -12, -12),
+    tracker = pos("TOPRIGHT", -12, -243),   -- 12 px under the minimap (219)
+}

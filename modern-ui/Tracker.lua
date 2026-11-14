@@ -379,6 +379,7 @@ local function taintScan()
 end
 
 function TR:Debug()
+    self:DebugPlacement()
     local scan = taintScan()
     cfg().taintScan = nil   -- (an earlier build kept the list in the settings)
     ns:Print("addon-written tracker fields: " .. #scan)
@@ -434,10 +435,23 @@ local function anchorTarget()
     if panel then
         local scale = c.scale * ns.db.general.scale
         local rise = c.height
-        local ui, pTop, pScale = UIParent:GetTop(), panel:GetTop(), panel:GetEffectiveScale()
-        if ui and pTop and pScale and scale > 0 then
-            local free = (ui - pTop * pScale / UIParent:GetEffectiveScale() - 20) / scale
-            rise = math.max(100, math.min(rise, math.floor(free)))
+        local ui, pTop, pRight, pScale = UIParent:GetTop(), panel:GetTop(), panel:GetRight(), panel:GetEffectiveScale()
+        if ui and pTop and pRight and pScale and scale > 0 then
+            local uiScale = UIParent:GetEffectiveScale()
+            pTop, pRight = pTop * pScale / uiScale, pRight * pScale / uiScale
+            local limit = ui - 20
+            -- a minimap above the tracker's column (16:9 layout: top right): the tracker hangs right under it
+            -- (12 px gap, like the other frames) instead of the Height option
+            local mm = ns.Minimap and ns.Minimap.GetFrame and ns.Minimap:GetFrame()
+            if mm and mm:IsShown() then
+                local k = mm:GetEffectiveScale() / uiScale
+                local l, r, b = mm:GetLeft(), mm:GetRight(), mm:GetBottom()
+                if l and r and b and b * k > pTop and l * k < pRight and r * k > pRight - 250 * scale then
+                    limit = math.min(limit, b * k - 12)
+                    rise = math.huge
+                end
+            end
+            rise = math.max(100, math.min(rise, math.floor((limit - pTop) / scale)))
         end
         -- (-10 x = a little gap to the screen edge)
         return panel, "TOPRIGHT", "TOPRIGHT", -10, rise
@@ -516,6 +530,10 @@ local function placeNow()
             end
             placing = false
             if c.overrideHeight then pcall(f.SetHeight, f, c.height) end
+            -- Blizzard's own height can be more than the room under the tracker's top. A frame clamped to the
+            -- screen is then pushed up to the top edge (behind a top right minimap): our spot wins instead.
+            -- (Setting the height does not stick: Blizzard puts its own back and re-anchors = endless loop.)
+            if f:IsClampedToScreen() then pcall(f.SetClampedToScreen, f, false) end
             lastWanted = key
             if released then
                 C_Timer.After(0.2, function()
@@ -554,6 +572,36 @@ function requestPlace()
 end
 
 function TR:RequestPlace() requestPlace() end
+
+-- where the tracker is and why; also kept in the saved variables (ModernUIDB.trackerDebug), readable after /reload
+function TR:DebugPlacement()
+    local out = {}
+    local function add(...) local t = {} for i = 1, select("#", ...) do t[i] = tostring((select(i, ...))) end out[#out + 1] = table.concat(t, " ") end
+    local f = _G.ObjectiveTrackerFrame
+    local function frame(label, fr)
+        if not fr then add(label, "none") return end
+        local ok, l, r, b, t = pcall(function() return fr:GetLeft(), fr:GetRight(), fr:GetBottom(), fr:GetTop() end)
+        add(label, fr:GetName() or "anon", "shown", fr:IsShown(), "lrbt", l, r, b, t, "eff", fr:GetEffectiveScale(), "strata", fr:GetFrameStrata(), fr:GetFrameLevel(), "clamped", fr:IsClampedToScreen())
+    end
+    add("UIParent", UIParent:GetWidth(), UIParent:GetHeight(), "eff", UIParent:GetEffectiveScale(), "aspect", ns.AspectLabel())
+    add("cfg attach", cfg().attach, "height", cfg().height, "scale", cfg().scale, "general", ns.db.general.scale)
+    frame("tracker", f)
+    if f then
+        for i = 1, f:GetNumPoints() do
+            local p, rel, rp, x, y = f:GetPoint(i)
+            add("  point", i, p, rel and (rel.GetName and rel:GetName() or "anon"), rp, x, y)
+        end
+    end
+    local rel, point, relPoint, x, y = anchorTarget()
+    add("wanted", rel and (rel:GetName() or "anon"), point, relPoint, x, y, "rel is holder", rel == holder)
+    frame("holder", holder)
+    frame("chat right", ns.Chat and ns.Chat.GetRightPanel and ns.Chat:GetRightPanel())
+    frame("minimap", ns.Minimap and ns.Minimap.GetFrame and ns.Minimap:GetFrame())
+    local state = f and aprState(f)
+    add("APR state", state ~= nil, "owns", f and state and aprOwns(f))
+    for _, line in ipairs(out) do ns:Print(line) end
+    ModernUIDB.trackerDebug = out
+end
 
 -- width of the tracker as drawn (its skin panel included), in UIParent units
 function TR:GetVisualWidth()

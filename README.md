@@ -15,7 +15,7 @@ Copy or symlink the `modern-ui/` folder into `World of Warcraft/_forever_/Interf
 | `/mui food` | print the food / water the auto macros would pick |
 | `/mui kb` | hover key binding: hover a button, press a key / mouse button / wheel (Escape clears) |
 
-There is one standard layout: action bars centered at the bottom, pet and stance bars below bar 1, xp bar on top of bar 2, the player cast bar above that, then player and target frames with the cooldown manager between them, damage meter left and minimap right of the bars (bars 3 and 4 in between, same height), tracker top right, Modern UI chat window (own tabs) bottom left edge to edge with the combat log mirrored bottom right. The wizard toggles what Modern UI takes over; "Reset to defaults" restores the layout. Profiles can be shared between characters.
+There is one standard layout: action bars centered at the bottom, pet and stance bars below bar 1, xp bar on top of bar 2, the player cast bar above that, then player and target frames with the cooldown manager between them, damage meter left and minimap right of the bars (bars 3 and 4 in between, same height), tracker top right, Modern UI chat window (own tabs) bottom left edge to edge with the combat log mirrored bottom right. On narrower screens (16:9 and similar) the damage meter moves to the top left with the party frames under it, and the minimap to the top right with the tracker under it. The wizard toggles what Modern UI takes over; "Reset to defaults" restores the layout. Each new character starts on its own profile; profiles can be shared between characters.
 
 ## Design notes (built to survive patches)
 - Action bars re-parent and re-skin Blizzard's own buttons, so bindings, flyouts, cooldowns and drag/drop stay Blizzard-maintained. Bar 1 does its own stance/form/vehicle paging.
@@ -42,4 +42,4 @@ There is one standard layout: action bars centered at the bottom, pet and stance
 Built for **WoW Forever** (game type `camelot`, 12.1 engine with vanilla content, interface `16001`). Combo points show on the target frame, bar 1 pages by stance/form offset (page 6 + offset) for every class. Shamans get a Modern UI totem bar (Totems.lua).
 
 ## Status
-Written without access to a game client: syntax-checked and smoke-tested against a stub API only. Expect small in-game fixes. Report Lua errors (`/console scriptErrors 1`).
+Report Lua errors (`/console scriptErrors 1`).
