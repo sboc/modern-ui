@@ -50,8 +50,12 @@ end
 
 local function autoThank(_, unit, info)
     if unit ~= "player" or not (ns.db and cfg().autoThank) then return end
-    if type(info) ~= "table" or not info.addedAuras or IsInInstance() then return end
-    for _, aura in ipairs(info.addedAuras) do
+    if type(info) ~= "table" or IsInInstance() then return end
+    -- In combat the client hands over addedAuras (or its entries) as secret values: skip those.
+    local added = info.addedAuras
+    if not plain(added) or type(added) ~= "table" then return end
+    for _, aura in ipairs(added) do
+        if not plain(aura) or type(aura) ~= "table" then return end
         local src = aura.sourceUnit
         if plain(src) and plain(aura.isHelpful) and aura.isHelpful then thankCaster(src) end
     end
