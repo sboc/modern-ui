@@ -347,6 +347,23 @@ local TAINT_MIXINS = {
     "EditModeSystemMixin",
 }
 
+-- Blizzard schedules tracker updates through DirtiableMixin: MarkDirty sets self.dirty and queues the update with
+-- RunNextFrame. A MarkDirty that runs tainted (e.g. an OnSizeChanged fired inside addon code) taints that flag and
+-- the queued update for the rest of the session: every later update reads the flag. The first such write is
+-- caught with its stack (/mui tracker, ModernUIDB.trackerTaint) to find the addon call that caused it.
+local dirtyTaint
+local function watchDirty(f)
+    if type(f.MarkDirty) ~= "function" then return end
+    hooksecurefunc(f, "MarkDirty", function()
+        if dirtyTaint then return end
+        local ok, secure, who = pcall(issecurevariable, f, "dirty")
+        if ok and not secure then
+            dirtyTaint = { time = date("%H:%M:%S"), by = tostring(who), stack = debugstack(2, 30, 0) }
+            ModernUIDB.trackerTaint = dirtyTaint
+        end
+    end)
+end
+
 local function taintScan()
     local out = {}
     local function check(label, t, k)
@@ -384,6 +401,10 @@ function TR:Debug()
     cfg().taintScan = nil   -- (an earlier build kept the list in the settings)
     ns:Print("addon-written tracker fields: " .. #scan)
     for i = 1, math.min(#scan, 40) do ns:Print("  " .. scan[i]) end
+    if dirtyTaint then
+        ns:Print("tracker update tainted at " .. dirtyTaint.time .. " by " .. dirtyTaint.by .. ", stack:")
+        for l in dirtyTaint.stack:gmatch("[^\n]+") do ns:Print("  " .. l) end
+    end
     local apr = _G.APR
     ns:Print(string.format("limit=%s APR=%s route=%s PlayerID=%s hooked=%s",
         tostring(limitMax()), tostring(apr ~= nil), tostring(apr and apr.ActiveRoute), tostring(apr and apr.PlayerID),
@@ -642,6 +663,8 @@ function TR:Start()
         panel.borders = UI.AddBorder(panel.borderFrame, 1, 0, 0, 0, 1, "BORDER")
         panel:Hide()
         if f.ApplySystemAnchor then hooksecurefunc(f, "ApplySystemAnchor", requestPlace) end
+        watchDirty(f)
+        ModernUIDB.trackerTaint = nil   -- only this session's
         -- Blizzard re-anchors the tracker to its default spot (under the old minimap) from several
         -- code paths (its own layout runs on every tracker update, e.g. each looted item): put it back
         -- right away. Waiting for the next frame drew it one frame at Blizzard's spot = flicker. In combat
