@@ -385,13 +385,34 @@ end
 ----------------------------------------------------------------------
 -- Profiles
 ----------------------------------------------------------------------
-function ns:CharKey()
-    return (UnitName("player") or "?") .. "-" .. (GetRealmName() or "?")
+-- The character's full name. Forever names are a first name plus a surname, unique per region, and
+-- UnitName returns both there (elsewhere the second value is a realm, and nil for your own character).
+local function charName()
+    local first, last = UnitName("player")
+    first = first or "?"
+    if RegionalUniqueNamesEnabled and RegionalUniqueNamesEnabled() and type(last) == "string" and last ~= "" then
+        return first .. " " .. last
+    end
+    return first
 end
 
--- Name of the profile a character gets of its own: the character name, without the realm
+function ns:CharKey()
+    return charName() .. "-" .. (GetRealmName() or "?")
+end
+
+-- Name of the profile a character gets of its own: the full character name, without the realm
 function ns:CharProfileName()
-    return UnitName("player") or "?"
+    return charName()
+end
+
+-- Older builds keyed characters by first name only ("Boogie-Realm"): carry the character's profile over
+-- to the full name key. Two characters sharing a first name: the first one to log in keeps it.
+function ns:AdoptOldCharKey()
+    local keys = ModernUIDB.profileKeys
+    local key, old = self:CharKey(), (UnitName("player") or "?") .. "-" .. (GetRealmName() or "?")
+    if key ~= old and keys[key] == nil and keys[old] ~= nil then
+        keys[key], keys[old] = keys[old], nil
+    end
 end
 
 function ns:InitDB()
@@ -674,6 +695,7 @@ end)
 ns:On("PLAYER_LOGIN", function()
     -- a character seen for the first time starts on its own profile (named after it);
     -- characters that already have one keep it
+    ns:AdoptOldCharKey()
     ns:SelectProfile(ModernUIDB.profileKeys[ns:CharKey()] or ns:CharProfileName(), true)
 
     for _, m in ipairs(ns.moduleList) do
