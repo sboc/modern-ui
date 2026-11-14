@@ -52,13 +52,43 @@ end
 ----------------------------------------------------------------------
 -- Paging (bar 1): stance / form / vehicle / override bars
 ----------------------------------------------------------------------
+-- A powershift (/use !Bear Form while in Bear Form) leaves the client in the
+-- form but with no bonus bar offset (GetBonusBarOffset() returns 0), so the
+-- [bonusbar:N] clauses stop matching and bar 1 drops to the caster page until
+-- the next shift. Each form's page is learned on a normal shift (keyed by
+-- spell ID, so the order of the stance bar does not matter) and added as a
+-- [form:N] fallback after the [bonusbar] clauses.
+local function formPages()
+    ModernUIDB.formPages = ModernUIDB.formPages or {}
+    return ModernUIDB.formPages
+end
+
+local function formSpell(index)
+    local _, _, _, spellID = GetShapeshiftFormInfo(index)
+    return spellID
+end
+
+-- true when a form's page was learned or changed
+local function learnFormPage()
+    if not (GetShapeshiftForm and GetBonusBarOffset and GetShapeshiftFormInfo) then return false end
+    local form, offset = GetShapeshiftForm(), GetBonusBarOffset()
+    -- prowl / stealth pages by stealth, not by form
+    if form <= 0 or offset <= 0 or IsStealthed() then return false end
+    local spellID = formSpell(form)
+    if not spellID then return false end
+    local pages = formPages()
+    if pages[spellID] == 6 + offset then return false end
+    pages[spellID] = 6 + offset
+    return true
+end
+
 local function pageDriver()
     local override = (GetOverrideBarIndex and GetOverrideBarIndex()) or 18
     local vehicle = (GetVehicleBarIndex and GetVehicleBarIndex()) or 16
     local temp = (GetTempShapeshiftBarIndex and GetTempShapeshiftBarIndex()) or 17
     -- Same order and pages as Blizzard's own bar 1 (WoW Forever pages bar 1 by
     -- stance / form offset for every class: page 6 + offset).
-    return table.concat({
+    local clauses = {
         "[overridebar] " .. override,
         "[vehicleui][possessbar] " .. vehicle,
         "[shapeshift] " .. temp,
@@ -68,8 +98,14 @@ local function pageDriver()
         "[bonusbar:3] 9",
         "[bonusbar:2] 8",
         "[bonusbar:1] 7",
-        "1",
-    }, "; ")
+    }
+    local pages = formPages()
+    for i = 1, (GetNumShapeshiftForms and GetNumShapeshiftForms()) or 0 do
+        local page = pages[formSpell(i) or 0]
+        if page then clauses[#clauses + 1] = "[form:" .. i .. "] " .. page end
+    end
+    clauses[#clauses + 1] = "1"
+    return table.concat(clauses, "; ")
 end
 
 local PAGE_SNIPPET = [[
@@ -93,17 +129,24 @@ end
 
 local function setupPaging(bar, def, enable)
     if not def.pageable then return end
-    if enable and not bar.molPaging then
-        bar.molPaging = true
-        bar:SetAttribute("_onstate-page", PAGE_SNIPPET)
-        RegisterStateDriver(bar, "page", pageDriver())
-        bar:HookScript("OnAttributeChanged", function(_, name)
-            if name == "state-page" or name == "actionpage" then
-                C_Timer.After(0, function() refreshButtons(def) end)
-            end
-        end)
+    if enable then
+        if not bar.molPagingHooked then
+            bar.molPagingHooked = true
+            bar:SetAttribute("_onstate-page", PAGE_SNIPPET)
+            bar:HookScript("OnAttributeChanged", function(_, name)
+                if name == "state-page" or name == "actionpage" then
+                    C_Timer.After(0, function() refreshButtons(def) end)
+                end
+            end)
+        end
+        -- re-registered when the forms (or their learned pages) change
+        local driver = pageDriver()
+        if bar.molPaging ~= driver then
+            bar.molPaging = driver
+            RegisterStateDriver(bar, "page", driver)
+        end
     elseif not enable and bar.molPaging then
-        bar.molPaging = false
+        bar.molPaging = nil
         UnregisterStateDriver(bar, "page")
         bar:SetAttribute("actionpage", 1)
         for i = 1, def.count do
@@ -861,6 +904,11 @@ function AB:Start()
     setupSwingTimer()
     ns:On("PLAYER_ENTERING_WORLD", function() AB:RequestLayout() end)
     ns:On("UPDATE_BONUS_ACTIONBAR", function() if bars.bar1 then C_Timer.After(0, function() refreshButtons(DEFS[1]) end) end end)
+    -- a newly learned form page reaches the page driver on the next layout (after combat)
+    for _, e in ipairs({ "UPDATE_BONUS_ACTIONBAR", "UPDATE_SHAPESHIFT_FORM" }) do
+        ns:On(e, function() if learnFormPage() then AB:RequestLayout() end end)
+    end
+    if learnFormPage() then AB:RequestLayout() end
 end
 
 ----------------------------------------------------------------------
