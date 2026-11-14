@@ -435,6 +435,7 @@ local function anchorTarget()
     if panel then
         local scale = c.scale * ns.db.general.scale
         local rise = c.height
+        local underMinimap = false
         local ui, pTop, pRight, pScale = UIParent:GetTop(), panel:GetTop(), panel:GetRight(), panel:GetEffectiveScale()
         if ui and pTop and pRight and pScale and scale > 0 then
             local uiScale = UIParent:GetEffectiveScale()
@@ -449,14 +450,15 @@ local function anchorTarget()
                 if l and r and b and b * k > pTop and l * k < pRight and r * k > pRight - 250 * scale then
                     limit = math.min(limit, b * k - 12)
                     rise = math.huge
+                    underMinimap = true
                 end
             end
             rise = math.max(100, math.min(rise, math.floor((limit - pTop) / scale)))
         end
         -- (-10 x = a little gap to the screen edge)
-        return panel, "TOPRIGHT", "TOPRIGHT", -10, rise
+        return panel, "TOPRIGHT", "TOPRIGHT", -10, rise, underMinimap
     end
-    return holder, "TOPRIGHT", "TOPRIGHT", 0, 0
+    return holder, "TOPRIGHT", "TOPRIGHT", 0, 0, false
 end
 
 -- Azeroth Pilot Reloaded's "attach to quest log" (guide ABOVE the tracker) takes the tracker frame over: it
@@ -508,7 +510,7 @@ local function placeNow()
         local wantScale = c.scale * ns.db.general.scale
         if math.abs((f:GetScale() or 0) - wantScale) > 0.001 then ns.SetScale(f, wantScale) end
         if math.abs((f:GetAlpha() or 0) - c.alpha) > 0.001 then f:SetAlpha(c.alpha) end
-        local rel, point, relPoint, x, y = anchorTarget()
+        local rel, point, relPoint, x, y, underMinimap = anchorTarget()
         local key = wantedKey(rel, point, relPoint, x, y)
         local state = aprState(f)
         local owned = state ~= nil and aprOwns(f)
@@ -531,9 +533,11 @@ local function placeNow()
             placing = false
             if c.overrideHeight then pcall(f.SetHeight, f, c.height) end
             -- Blizzard's own height can be more than the room under the tracker's top. A frame clamped to the
-            -- screen is then pushed up to the top edge (behind a top right minimap): our spot wins instead.
+            -- screen is then pushed up to the top edge. Under a top right minimap that hides it: our spot wins
+            -- instead. Everywhere else (ultrawide: minimap at the bottom) the push to the top right is the
+            -- layout, so the clamp stays (and comes back after a switch from a narrow screen).
             -- (Setting the height does not stick: Blizzard puts its own back and re-anchors = endless loop.)
-            if f:IsClampedToScreen() then pcall(f.SetClampedToScreen, f, false) end
+            if f:IsClampedToScreen() == underMinimap then pcall(f.SetClampedToScreen, f, not underMinimap) end
             lastWanted = key
             if released then
                 C_Timer.After(0.2, function()

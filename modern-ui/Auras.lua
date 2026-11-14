@@ -15,7 +15,8 @@ local UI = ns.UI
 --
 -- spec = { point = { point, relativeTo, relativePoint, x, y }, anchor = "BOTTOMLEFT",
 --          growH = "Right"|"Left", growV = "Up"|"Down", rowWidth = px,
---          groups = { { key, filter, max, size, gap, border = {r,g,b}, newLine }, ... } }
+--          groups = { { key, filter, max, size, gap, border = {r,g,b}, newLine, cancel }, ... } }
+--          (cancel = right-click cancels the aura: only for the player's own buffs)
 local A = {}
 ns.Auras = A
 
@@ -87,8 +88,14 @@ local function makeInit(g)
         ns:SetFont(stack, math.max(8, math.floor(g.size * 0.5)), "OUTLINE")
         stack:SetPoint("BOTTOMRIGHT", 1, 0)
 
-        -- engine buttons come click-enabled: on nameplates that would swallow target clicks
-        pcall(button.SetMouseClickEnabled, button, false)
+        -- engine buttons come click-enabled: on nameplates that would swallow target clicks.
+        -- A cancel group (your own buffs) keeps clicks: right-click cancels the buff, like Blizzard's buff frame.
+        if g.cancel then
+            pcall(button.SetCancelAuraButtons, button, "RightButtonUp")
+        else
+            pcall(button.SetCancelAuraButtons, button, nil)
+            pcall(button.SetMouseClickEnabled, button, false)
+        end
 
         button:SetIcon(icon)
         button:SetDurationCooldown(cd)
@@ -118,7 +125,7 @@ end
 local function signature(spec)
     local parts = { spec.anchor or "", spec.growH or "", spec.growV or "", tostring(spec.rowWidth or "") }
     for _, g in ipairs(spec.groups) do
-        parts[#parts + 1] = table.concat({ g.key, g.filter, g.size, g.gap, tostring(g.newLine), tostring(g.timer) }, ":")
+        parts[#parts + 1] = table.concat({ g.key, g.filter, g.size, g.gap, tostring(g.newLine), tostring(g.timer), tostring(g.cancel) }, ":")
     end
     return table.concat(parts, "|")
 end

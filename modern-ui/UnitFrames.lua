@@ -778,6 +778,8 @@ local function configureAuras(f, cfg)
         end
         local debuffs = cfg.showDebuffs and group("debuffs", debuffFilter(cfg), cfg.onlyMyDebuffs, { 0.7, 0.1, 0.1 })
         local buffs = cfg.showBuffs and group("buffs", "HELPFUL", cfg.onlyMyBuffs, { 0, 0, 0 })
+        -- your own buffs: right-click cancels them (like Blizzard's buff frame)
+        if buffs and f.unit == "player" then buffs.cancel = true end
         local rowWidth = per * (size + gap)
         local top, bottom
         if side then
