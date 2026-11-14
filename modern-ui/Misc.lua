@@ -1,8 +1,8 @@
 local ADDON, ns = ...
 local UI = ns.UI
 
--- Small quality of life features: fast auto loot, an AFK screen and timers for temporary weapon
--- enchants (poisons, sharpening stones, shaman weapon buffs).
+-- Small quality of life features: fast auto loot, an AFK screen, thanking strangers for buffs and timers
+-- for temporary weapon enchants (poisons, sharpening stones, shaman weapon buffs).
 local M = ns:NewModule("misc")
 ns.Misc = M
 
@@ -24,6 +24,37 @@ local function fastLoot()
     lastLoot = now
     local n = GetNumLootItems and GetNumLootItems() or 0
     for i = n, 1, -1 do pcall(LootSlot, i) end
+end
+
+----------------------------------------------------------------------
+-- Auto thanks: a player outside your group who buffs you in the open world gets a /thank emote.
+-- The combat log is closed to addons on this client: the new aura on you names its caster as a unit
+-- (sourceUnit), which is only there while the caster has one (nameplate, target, mouseover, ...).
+-- One thanks per caster per minute, so a druid casting Mark of the Wild and Thorns gets one.
+----------------------------------------------------------------------
+local thanked = {}   -- caster GUID -> GetTime() of the last thanks
+
+local function plain(v) return v ~= nil and not (issecretvalue and issecretvalue(v)) end
+
+local function thankCaster(unit)
+    local ok, isPlayer, isMe, guid = pcall(function()
+        return UnitIsPlayer(unit), UnitIsUnit(unit, "player"), UnitGUID(unit)
+    end)
+    if not (ok and plain(isPlayer) and plain(isMe) and plain(guid)) or not isPlayer or isMe then return end
+    if UnitInParty(unit) or UnitInRaid(unit) then return end
+    local now = GetTime()
+    if thanked[guid] and now - thanked[guid] < 60 then return end
+    thanked[guid] = now
+    pcall(DoEmote, "THANK", unit)
+end
+
+local function autoThank(_, unit, info)
+    if unit ~= "player" or not (ns.db and cfg().autoThank) then return end
+    if type(info) ~= "table" or not info.addedAuras or IsInInstance() then return end
+    for _, aura in ipairs(info.addedAuras) do
+        local src = aura.sourceUnit
+        if plain(src) and plain(aura.isHelpful) and aura.isHelpful then thankCaster(src) end
+    end
 end
 
 ----------------------------------------------------------------------
@@ -194,6 +225,7 @@ end
 ----------------------------------------------------------------------
 function M:Init()
     ns:On("LOOT_READY", fastLoot)
+    ns:On("UNIT_AURA", autoThank)
     ns:On("PLAYER_FLAGS_CHANGED", function(_, unit) if unit == "player" then updateAfk() end end)
     ns:On("PLAYER_REGEN_DISABLED", updateAfk)
     ns:On("PLAYER_ENTERING_WORLD", updateAfk)

@@ -174,6 +174,7 @@ steps[6] = {
             O.Check("datatexts.enabled", "Data text strip at the top of the screen"),
             O.Check("misc.fastLoot", "Fast loot: take everything at once when auto loot is on"),
             O.Check("misc.afkScreen", "Dim the screen and show a timer while you are AFK"),
+            O.Check("misc.autoThank", "Thank players outside your group who buff you in the open world"),
         }
     end,
 }

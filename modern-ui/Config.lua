@@ -572,6 +572,8 @@ local function miscOptions()
         Text("Follows Blizzard's auto loot setting and its modifier key. With auto loot off, nothing changes."),
         Header("AFK screen"),
         Check("misc.afkScreen", "Dim the screen and show a timer while you are AFK"),
+        Header("Auto thanks"),
+        Check("misc.autoThank", "Thank players outside your group who buff you in the open world (/thank)"),
         Header("Weapon enchants"),
         Check("weaponenchants.enabled", "Show temporary weapon enchants (poisons, stones, weapon buffs) with their time left"),
         Range("weaponenchants.size", "Icon size", 16, 48, 1, px),

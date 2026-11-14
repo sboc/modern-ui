@@ -180,7 +180,7 @@ ns.defaults = {
               bgAlpha = 0.92, qualityColors = true,
               bossmods = true,     -- BigWigs bar style / DBM timer bars
               lootMover = true },  -- group loot roll frames sit on a Modern UI anchor
-    misc = { fastLoot = true, afkScreen = true },
+    misc = { fastLoot = true, afkScreen = true, autoThank = true },
     datatexts = { enabled = true, scale = 1, alpha = 1, fontSize = 0, background = true,
                   width = 620,   -- fixed strip width (the action bar stack's); 0 = as wide as its texts
                   gold = true, fps = true, durability = true, bags = true, clock = false,
