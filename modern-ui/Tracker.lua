@@ -388,6 +388,22 @@ function checkDirty(t, key)
     record("dirty", { tostring(okName and name or t) .. "." .. key .. " <- " .. tostring(who) })
 end
 
+-- The quest sections read Blizzard's QuestCache object of every watched quest (quest:GetID(), quest.isTask, ...).
+-- An object created or refreshed inside addon code keeps addon-written fields for the session, and every later
+-- tracker update that reads them runs tainted. Checked after each QuestCache:Get, so the stack names the call.
+local QUEST_FIELDS = { "questID", "hasQuestLogInfo", "isTask", "isBounty", "title" }
+local function checkQuest(cache, id)
+    if taintFound.questCache then return end
+    local q = type(cache.objects) == "table" and cache.objects[id]
+    if type(q) ~= "table" then return end
+    local out = {}
+    for _, k in ipairs(QUEST_FIELDS) do
+        local ok, secure, who = pcall(issecurevariable, q, k)
+        if ok and not secure then out[#out + 1] = "quest " .. tostring(id) .. "." .. k .. " <- " .. tostring(who) end
+    end
+    record("questCache", out)
+end
+
 local function checkEditMode()
     local emf = _G.EditModeManagerFrame
     if taintFound.editMode or type(emf) ~= "table" then return end
@@ -440,7 +456,7 @@ function TR:Debug()
     cfg().taintScan = nil   -- (an earlier build kept the list in the settings)
     ns:Print("addon-written tracker fields: " .. #scan)
     for i = 1, math.min(#scan, 40) do ns:Print("  " .. scan[i]) end
-    for _, key in ipairs({ "dirty", "tracker", "editMode" }) do
+    for _, key in ipairs({ "questCache", "dirty", "tracker", "editMode" }) do
         local t = taintFound[key]
         if t then
             ns:Print(key .. " first tainted at " .. t.time .. (t.combat and " (in combat)" or "") .. ":")
@@ -711,6 +727,10 @@ function TR:Start()
         local emf = _G.EditModeManagerFrame
         if emf and emf.UpdateLayoutInfo then
             hooksecurefunc(emf, "UpdateLayoutInfo", function() pcall(checkEditMode) end)
+        end
+        local qc = _G.QuestCache
+        if type(qc) == "table" and type(qc.Get) == "function" then
+            hooksecurefunc(qc, "Get", function(cache, id) pcall(checkQuest, cache, id) end)
         end
         -- Blizzard re-anchors the tracker to its default spot (under the old minimap) from several
         -- code paths (its own layout runs on every tracker update, e.g. each looted item): put it back
