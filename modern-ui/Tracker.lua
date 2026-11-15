@@ -31,6 +31,7 @@ local placing = false   -- our own re-anchoring must not trigger the re-anchor h
 local placeQueued, skinQueued = false, false
 local reanchors = 0   -- times Blizzard moved the tracker and we put it back (/mui tracker)
 local hooked = {}
+local checkTaint   -- (taint diagnostics, below)
 
 local function cfg() return ns.db.tracker end
 
@@ -144,17 +145,24 @@ local function requestSkin()
     end)
 end
 
+local function afterUpdate()
+    requestSkin()
+    pcall(checkTaint)
+end
+
+-- (Blizzard's queued tracker updates call the frame's original Update directly, past any hook on the frame;
+-- the section Updates are looked up on each call and always run through these hooks.)
 local function hookTrackers()
     eachTracker(function(t)
         if not hooked[t] and t.Update then
             hooked[t] = true
-            hooksecurefunc(t, "Update", requestSkin)
+            hooksecurefunc(t, "Update", afterUpdate)
         end
     end)
     local otf = _G.ObjectiveTrackerFrame
     if otf and not hooked[otf] and otf.Update then
         hooked[otf] = true
-        hooksecurefunc(otf, "Update", requestSkin)
+        hooksecurefunc(otf, "Update", afterUpdate)
     end
 end
 
@@ -347,26 +355,45 @@ local TAINT_MIXINS = {
     "EditModeSystemMixin",
 }
 
--- Blizzard schedules tracker updates through DirtiableMixin: MarkDirty sets self.dirty and queues the update with
--- RunNextFrame. A MarkDirty that runs tainted (e.g. an OnSizeChanged fired inside addon code) taints that flag and
--- the queued update for the rest of the session: every later update reads the flag. The first such write is
--- caught with its stack (/mui tracker, ModernUIDB.trackerTaint) to find the addon call that caused it.
-local dirtyTaint
-local function watchDirty(f)
-    if type(f.MarkDirty) ~= "function" then return end
-    hooksecurefunc(f, "MarkDirty", function()
-        if dirtyTaint then return end
-        local ok, secure, who = pcall(issecurevariable, f, "dirty")
-        if ok and not secure then
-            dirtyTaint = { time = date("%H:%M:%S"), by = tostring(who), stack = debugstack(2, 30, 0) }
-            ModernUIDB.trackerTaint = dirtyTaint
-        end
-    end)
+local taintScan
+
+-- Once a tracker field is written by addon code, every later tracker update that reads it runs tainted and errors
+-- on secret auras in combat (ShouldShowMawBuffs). Checked after each tracker update until the first hit, which is
+-- kept with the fields and the stack of the update that found them (/mui tracker, ModernUIDB.trackerTaint).
+-- (The dirty flag alone was never tainted: the cause is another field.)
+-- The other way in: Edit Mode's layout apply (on level up: PLAYER_SPECIALIZATION_CHANGED) running tainted as a
+-- whole; it ends with a tracker update. Its fields written tainted show that, and after which step.
+local taintFound = {}
+
+local function record(key, fields)
+    if taintFound[key] or #fields == 0 then return end
+    taintFound[key] = { time = date("%H:%M:%S"), combat = InCombatLockdown(), fields = fields,
+                        stack = debugstack(2, 30, 0) }
 end
 
-local function taintScan()
+function checkTaint()
+    if taintFound.tracker then return end
+    record("tracker", taintScan(true))
+end
+
+local function checkEditMode()
+    local emf = _G.EditModeManagerFrame
+    if taintFound.editMode or type(emf) ~= "table" then return end
+    local out = {}
+    for k in pairs(emf) do
+        if type(k) == "string" then
+            local ok, secure, who = pcall(issecurevariable, emf, k)
+            if ok and not secure then out[#out + 1] = "EditModeManagerFrame." .. k .. " <- " .. tostring(who) end
+        end
+    end
+    record("editMode", out)
+end
+
+function taintScan(skipOwn)
     local out = {}
     local function check(label, t, k)
+        -- our own markers (header.molLine, ...) are never read by Blizzard
+        if skipOwn and (k:find("^mol") or k:find("^mui")) then return end
         local ok, secure, who = pcall(issecurevariable, t, k)
         if ok and not secure then out[#out + 1] = label .. " <- " .. tostring(who) end
     end
@@ -401,9 +428,14 @@ function TR:Debug()
     cfg().taintScan = nil   -- (an earlier build kept the list in the settings)
     ns:Print("addon-written tracker fields: " .. #scan)
     for i = 1, math.min(#scan, 40) do ns:Print("  " .. scan[i]) end
-    if dirtyTaint then
-        ns:Print("tracker update tainted at " .. dirtyTaint.time .. " by " .. dirtyTaint.by .. ", stack:")
-        for l in dirtyTaint.stack:gmatch("[^\n]+") do ns:Print("  " .. l) end
+    for _, key in ipairs({ "tracker", "editMode" }) do
+        local t = taintFound[key]
+        if t then
+            ns:Print(key .. " first tainted at " .. t.time .. (t.combat and " (in combat)" or "") .. ":")
+            for _, l in ipairs(t.fields) do ns:Print("  " .. l) end
+            ns:Print("found after the update called from:")
+            for l in t.stack:gmatch("[^\n]+") do ns:Print("  " .. l) end
+        end
     end
     local apr = _G.APR
     ns:Print(string.format("limit=%s APR=%s route=%s PlayerID=%s hooked=%s",
@@ -663,8 +695,11 @@ function TR:Start()
         panel.borders = UI.AddBorder(panel.borderFrame, 1, 0, 0, 0, 1, "BORDER")
         panel:Hide()
         if f.ApplySystemAnchor then hooksecurefunc(f, "ApplySystemAnchor", requestPlace) end
-        watchDirty(f)
-        ModernUIDB.trackerTaint = nil   -- only this session's
+        ModernUIDB.trackerTaint = taintFound   -- only this session's
+        local emf = _G.EditModeManagerFrame
+        if emf and emf.UpdateLayoutInfo then
+            hooksecurefunc(emf, "UpdateLayoutInfo", function() pcall(checkEditMode) end)
+        end
         -- Blizzard re-anchors the tracker to its default spot (under the old minimap) from several
         -- code paths (its own layout runs on every tracker update, e.g. each looted item): put it back
         -- right away. Waiting for the next frame drew it one frame at Blizzard's spot = flicker. In combat
