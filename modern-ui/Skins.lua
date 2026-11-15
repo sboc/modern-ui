@@ -413,8 +413,21 @@ end
 ----------------------------------------------------------------------
 -- World map
 ----------------------------------------------------------------------
+-- Quest details opened in the map that is already shown (QuestInfo_Display moves QuestInfoFrame into the details
+-- panel) bring no map show / update with them: the text is lightened right after Blizzard drew it instead.
+local detailsHooked = false
+local function hookQuestDetails()
+    if detailsHooked or type(_G.QuestInfo_Display) ~= "function" then return end
+    detailsHooked = true
+    hooksecurefunc("QuestInfo_Display", function()
+        local qm = _G.QuestMapFrame
+        if type(qm) == "table" then lightenAll(qm.DetailsFrame, "worldmap") end
+    end)
+end
+
 local function styleWorldMap(frame)
     local key = "worldmap"
+    hookQuestDetails()
     stripFrame(frame, key)
     local bf = frame.BorderFrame
     if type(bf) == "table" then stripFrame(bf, key) end
