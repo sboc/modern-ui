@@ -199,6 +199,8 @@ ns.defaults = {
         showBlizzardAuras = false,   -- Blizzard's own buff / debuff window
         healPrediction = true,       -- incoming heals drawn past the end of the health bar
         focusCast = { enabled = true, height = 18 },   -- focus cast bar stacked on the player cast bar
+        -- mouse wheel over a unit frame: spell name or macro line ("/..."), "" = not bound (camera zoom)
+        wheel = { up = "", down = "", shiftUp = "", shiftDown = "", ctrlUp = "", ctrlDown = "", altUp = "", altDown = "" },
         frames = {
             -- player / target are 200 wide: they sit over the left / right ends of the stack, above the focus / target of target row
             player = merge(frameBase, { width = 200, height = 52, powerHeight = 10, castHeight = 18, showCastbar = true,

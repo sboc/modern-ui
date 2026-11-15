@@ -550,6 +550,64 @@ local function bindUnitEvents(f, unit)
     end
 end
 
+-- Mouse wheel casting. Blizzard's click casting cannot bind the wheel, so while the mouse is over one of our
+-- frames the configured wheel combos are bound to a click on that frame ("WheelUp" / "WheelDown"), which casts
+-- through the frame's own spell / macro attributes on its unit. Done in secure snippets: works in combat.
+-- Only configured combos are bound; the others keep zooming the camera.
+local WHEEL = {
+    { mod = "", key = "up", bind = "MOUSEWHEELUP", button = "WheelUp" },
+    { mod = "", key = "down", bind = "MOUSEWHEELDOWN", button = "WheelDown" },
+    { mod = "shift-", key = "shiftUp", bind = "SHIFT-MOUSEWHEELUP", button = "WheelUp" },
+    { mod = "shift-", key = "shiftDown", bind = "SHIFT-MOUSEWHEELDOWN", button = "WheelDown" },
+    { mod = "ctrl-", key = "ctrlUp", bind = "CTRL-MOUSEWHEELUP", button = "WheelUp" },
+    { mod = "ctrl-", key = "ctrlDown", bind = "CTRL-MOUSEWHEELDOWN", button = "WheelDown" },
+    { mod = "alt-", key = "altUp", bind = "ALT-MOUSEWHEELUP", button = "WheelUp" },
+    { mod = "alt-", key = "altDown", bind = "ALT-MOUSEWHEELDOWN", button = "WheelDown" },
+}
+local WHEEL_ENTER = [[
+    for i = 1, 8 do
+        local key = self:GetAttribute("molwheelkey" .. i)
+        if key then self:SetBindingClick(true, key, self, self:GetAttribute("molwheelbtn" .. i)) end
+    end
+]]
+local WHEEL_LEAVE = [[ self:ClearBindings() ]]
+local wheelHeader
+
+local function hookWheel(f)
+    wheelHeader = wheelHeader or CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
+    SecureHandlerWrapScript(f, "OnEnter", wheelHeader, WHEEL_ENTER)
+    SecureHandlerWrapScript(f, "OnLeave", wheelHeader, WHEEL_LEAVE)
+    SecureHandlerWrapScript(f, "OnHide", wheelHeader, WHEEL_LEAVE)
+end
+
+-- out of combat only (attributes of a secure frame)
+local function applyWheel(f)
+    local c = ns.db.unitframes.wheel or {}
+    local n = 0
+    for _, w in ipairs(WHEEL) do
+        local v = strtrim(c[w.key] or "")
+        local typeAttr = w.mod .. "type-" .. w.button
+        local spellAttr, macroAttr = w.mod .. "spell-" .. w.button, w.mod .. "macrotext-" .. w.button
+        if v ~= "" then
+            n = n + 1
+            f:SetAttribute("molwheelkey" .. n, w.bind)
+            f:SetAttribute("molwheelbtn" .. n, w.button)
+            local macro = v:sub(1, 1) == "/"
+            f:SetAttribute(typeAttr, macro and "macro" or "spell")
+            f:SetAttribute(spellAttr, (not macro) and v or nil)
+            f:SetAttribute(macroAttr, macro and v or nil)
+        else
+            f:SetAttribute(typeAttr, nil)
+            f:SetAttribute(spellAttr, nil)
+            f:SetAttribute(macroAttr, nil)
+        end
+    end
+    for i = n + 1, #WHEEL do
+        f:SetAttribute("molwheelkey" .. i, nil)
+        f:SetAttribute("molwheelbtn" .. i, nil)
+    end
+end
+
 local function createUnitFrame(unit, name, cfgKey)
     local f = CreateFrame("Button", "ModernUI_" .. name, UIParent, "SecureUnitButtonTemplate")
     f.unit, f.cfgKey = unit, cfgKey
@@ -659,8 +717,8 @@ local function createUnitFrame(unit, name, cfgKey)
         GameTooltip:Show()
     end)
     f:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
     f:SetScript("OnShow", function(self) updateAll(self) end)
+    hookWheel(f)   -- (after the scripts it wraps are set)
     f:SetScript("OnEvent", function(self, event)
         local h = UNIT_EVENT_HANDLERS[event]
         if h then h(self) end
@@ -1268,6 +1326,7 @@ function UF:Apply()
             if cfg.enabled then updateAll(f) end
         end
         configureFocusCast()
+        for _, f in ipairs(frames) do applyWheel(f) end
         for _, def in ipairs(GROUPS) do
             local c = byKey[def.key]
             local cfg = frameCfg[def.key]

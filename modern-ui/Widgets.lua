@@ -317,6 +317,38 @@ function UI.Dropdown(parent, label, items, get, set, width)
     return f
 end
 
+-- One line of text, saved on Enter or when the field loses focus (Escape puts the saved value back)
+function UI.Input(parent, label, get, set, width)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetHeight(46)
+    f.text = UI.Text(f, label)
+    f.text:SetPoint("TOPLEFT", 0, 0)
+    local edit = CreateFrame("EditBox", nil, f)
+    edit:SetFontObject("GameFontHighlight")
+    pcall(edit.SetFont, edit, ns.DEFAULT_FONT, 13, "")
+    edit:SetAutoFocus(false)
+    edit:SetSize(width or 260, 22)
+    edit:SetPoint("BOTTOMLEFT", 0, 0)
+    edit:SetTextInsets(6, 6, 0, 0)
+    edit.bg = edit:CreateTexture(nil, "BACKGROUND")
+    edit.bg:SetAllPoints()
+    edit.bg:SetColorTexture(unpack(C.panel))
+    UI.AddBorder(edit, 1, 0, 0, 0, 1)
+    f.edit = edit
+
+    function f:Refresh() edit:SetText(get() or "") end
+    local function commit()
+        local v = strtrim(edit:GetText() or "")
+        if v ~= (get() or "") then set(v) end
+        f:Refresh()
+    end
+    edit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    edit:SetScript("OnEditFocusLost", commit)
+    edit:SetScript("OnEscapePressed", function(self) f:Refresh(); self:ClearFocus() end)
+    f:Refresh()
+    return f
+end
+
 ----------------------------------------------------------------------
 -- Windows, prompts, confirm
 ----------------------------------------------------------------------
@@ -598,6 +630,11 @@ function UI.BuildOptions(parent, options, width)
             h = 46
         elseif o.type == "select" then
             w = UI.Dropdown(container, o.label, o.values, get, set, math.min(width, 260))
+            w:SetWidth(math.min(width, 260))
+            w:SetPoint("TOPLEFT", 0, -y)
+            h = 52
+        elseif o.type == "input" then
+            w = UI.Input(container, o.label, get, set, math.min(width, 260))
             w:SetWidth(math.min(width, 260))
             w:SetPoint("TOPLEFT", 0, -y)
             h = 52

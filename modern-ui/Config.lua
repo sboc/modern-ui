@@ -20,6 +20,7 @@ local function Range(path, label, min, max, step, fmt)
 end
 local function Select(path, label, values) return { type = "select", path = path, label = label, values = values } end
 local function Button(label, fn, width) return { type = "button", label = label, onClick = fn, width = width } end
+local function Input(path, label) return { type = "input", path = path, label = label } end
 
 ns.Options = { Header = Header, Text = Text, Check = Check, Range = Range, Select = Select, Button = Button,
                pct = pct, px = px, x2 = x2 }
@@ -642,6 +643,16 @@ local function unitCommon()
         Check("unitframes.focusCast.enabled", "Show the focus' cast bar above the player cast bar"),
         Range("unitframes.focusCast.height", "Focus cast bar height", 8, 30, 1, px),
         Text("Works even when the Focus frame is off."),
+        Header("Mouse wheel casting"),
+        Text("Scroll over a unit frame to cast on that unit. Enter a spell name, or a macro line starting with / (e.g. /cast [@mouseover] Renew). Empty: the wheel keeps zooming the camera. Blizzard's click casting cannot bind the wheel."),
+        Input("unitframes.wheel.up", "Wheel up"),
+        Input("unitframes.wheel.down", "Wheel down"),
+        Input("unitframes.wheel.shiftUp", "Shift + wheel up"),
+        Input("unitframes.wheel.shiftDown", "Shift + wheel down"),
+        Input("unitframes.wheel.ctrlUp", "Ctrl + wheel up"),
+        Input("unitframes.wheel.ctrlDown", "Ctrl + wheel down"),
+        Input("unitframes.wheel.altUp", "Alt + wheel up"),
+        Input("unitframes.wheel.altDown", "Alt + wheel down"),
         Header("Layout"),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
         Text("Party and boss frames only show while you are in a group / an encounter - unlock to see where they sit."),
