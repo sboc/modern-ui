@@ -481,14 +481,53 @@ lightenAll = function(root, key, depth)
     end
 end
 
--- gossip / quest list lines carry their color as an escape code in these strings
-local COLOR_STRINGS = { NORMAL_QUEST_DISPLAY = "|cffffffff%s|r", TRIVIAL_QUEST_DISPLAY = "|cff9d9d9d%s|r",
-                        IGNORED_QUEST_DISPLAY = "|cff9d9d9d%s|r" }
-local originalStrings = {}
-local function applyColorStrings(on)
-    for name, light in pairs(COLOR_STRINGS) do
-        if originalStrings[name] == nil then originalStrings[name] = _G[name] or false end
-        if on then _G[name] = light elseif originalStrings[name] then _G[name] = originalStrings[name] end
+-- Gossip / quest greeting quest lines carry their color (dark ink) as an escape code from these format strings.
+-- They stay Blizzard's: Blizzard reads them while it builds the list, so an addon-written string taints that code,
+-- the quest objects it caches next (QuestCache) come out tainted, and every objective tracker update that reads
+-- them errors on secret auras in combat. Each line is redrawn light after Blizzard set it instead.
+local QUEST_LINE_STRINGS = { "IGNORED_QUEST_DISPLAY", "TRIVIAL_QUEST_DISPLAY", "NORMAL_QUEST_DISPLAY" }  -- most specific first
+local QUEST_LINE_COLOR = { NORMAL_QUEST_DISPLAY = "|cffffffff", TRIVIAL_QUEST_DISPLAY = "|cff9d9d9d",
+                           IGNORED_QUEST_DISPLAY = "|cff9d9d9d" }
+
+local function lightenQuestLine(button)
+    if not isOn("npc") or type(button) ~= "table" or not button.GetText then return end
+    local text = button:GetText()
+    if type(text) ~= "string" then return end
+    for _, name in ipairs(QUEST_LINE_STRINGS) do
+        local fmt = _G[name]
+        local pre, post
+        if type(fmt) == "string" then pre, post = fmt:match("^(.-)%%s(.*)$") end
+        if pre and #text >= #pre + #post and text:sub(1, #pre) == pre
+            and (#post == 0 or text:sub(-#post) == post) then
+            local light = fmt:gsub("|c%x%x%x%x%x%x%x%x", QUEST_LINE_COLOR[name])
+            if light ~= fmt then button:SetFormattedText(light, text:sub(#pre + 1, #text - #post)) end
+            return
+        end
+    end
+end
+
+local questLinesHooked = false
+local function hookQuestLines()
+    if questLinesHooked then return end
+    questLinesHooked = true
+    -- gossip: buttons copy their methods from these mixins when created, so hook every one that defines its own
+    for _, name in ipairs({ "GossipSharedQuestButtonMixin", "GossipQuestButtonMixin",
+                            "GossipSharedAvailableQuestButtonMixin", "GossipSharedActiveQuestButtonMixin",
+                            "GossipAvailableQuestButtonMixin", "GossipActiveQuestButtonMixin" }) do
+        local m = _G[name]
+        if type(m) == "table" and type(rawget(m, "UpdateTitleForQuest")) == "function" then
+            hooksecurefunc(m, "UpdateTitleForQuest", lightenQuestLine)
+        end
+    end
+    -- quest greeting: built inline on show
+    local greeting = _G.QuestFrameGreetingPanel
+    if greeting and greeting.HookScript then
+        greeting:HookScript("OnShow", function(self)
+            local pool = self.titleButtonPool
+            if pool and pool.EnumerateActive then
+                for b in pool:EnumerateActive() do lightenQuestLine(b) end
+            end
+        end)
     end
 end
 
@@ -926,7 +965,7 @@ end
 
 function SK:Apply()
     if not ns.db then return end
-    applyColorStrings(cfg().enabled and cfg().npc)
+    if cfg().enabled and cfg().npc then hookQuestLines() end
     SK.bubblesDirty = true   -- one more sweep so toggling the option updates visible bubbles
     if not cfg().enabled then
         if started then
