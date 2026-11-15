@@ -31,7 +31,7 @@ local placing = false   -- our own re-anchoring must not trigger the re-anchor h
 local placeQueued, skinQueued = false, false
 local reanchors = 0   -- times Blizzard moved the tracker and we put it back (/mui tracker)
 local hooked = {}
-local checkTaint   -- (taint diagnostics, below)
+local checkTaint, checkDirty   -- (taint diagnostics, below)
 
 local function cfg() return ns.db.tracker end
 
@@ -157,12 +157,14 @@ local function hookTrackers()
         if not hooked[t] and t.Update then
             hooked[t] = true
             hooksecurefunc(t, "Update", afterUpdate)
+            if t.MarkDirty then hooksecurefunc(t, "MarkDirty", function() pcall(checkDirty, t, "isDirty") end) end
         end
     end)
     local otf = _G.ObjectiveTrackerFrame
     if otf and not hooked[otf] and otf.Update then
         hooked[otf] = true
         hooksecurefunc(otf, "Update", afterUpdate)
+        if otf.MarkDirty then hooksecurefunc(otf, "MarkDirty", function() pcall(checkDirty, otf, "dirty") end) end
     end
 end
 
@@ -360,7 +362,9 @@ local taintScan
 -- Once a tracker field is written by addon code, every later tracker update that reads it runs tainted and errors
 -- on secret auras in combat (ShouldShowMawBuffs). Checked after each tracker update until the first hit, which is
 -- kept with the fields and the stack of the update that found them (/mui tracker, ModernUIDB.trackerTaint).
--- (The dirty flag alone was never tainted: the cause is another field.)
+-- An addon call that makes Blizzard's tracker handlers run inside it (the quest watch / super track API fires
+-- their events right away) marks the tracker dirty from tainted code: the queued update then runs tainted. Caught
+-- on the dirty flag with the stack that leads to it, addon call included.
 -- The other way in: Edit Mode's layout apply (on level up: PLAYER_SPECIALIZATION_CHANGED) running tainted as a
 -- whole; it ends with a tracker update. Its fields written tainted show that, and after which step.
 local taintFound = {}
@@ -368,12 +372,20 @@ local taintFound = {}
 local function record(key, fields)
     if taintFound[key] or #fields == 0 then return end
     taintFound[key] = { time = date("%H:%M:%S"), combat = InCombatLockdown(), fields = fields,
-                        stack = debugstack(2, 30, 0) }
+                        stack = debugstack(2, 40, 0) }
 end
 
 function checkTaint()
     if taintFound.tracker then return end
     record("tracker", taintScan(true))
+end
+
+function checkDirty(t, key)
+    if taintFound.dirty then return end
+    local ok, secure, who = pcall(issecurevariable, t, key)
+    if not ok or secure then return end
+    local okName, name = pcall(t.GetName, t)
+    record("dirty", { tostring(okName and name or t) .. "." .. key .. " <- " .. tostring(who) })
 end
 
 local function checkEditMode()
@@ -428,12 +440,12 @@ function TR:Debug()
     cfg().taintScan = nil   -- (an earlier build kept the list in the settings)
     ns:Print("addon-written tracker fields: " .. #scan)
     for i = 1, math.min(#scan, 40) do ns:Print("  " .. scan[i]) end
-    for _, key in ipairs({ "tracker", "editMode" }) do
+    for _, key in ipairs({ "dirty", "tracker", "editMode" }) do
         local t = taintFound[key]
         if t then
             ns:Print(key .. " first tainted at " .. t.time .. (t.combat and " (in combat)" or "") .. ":")
             for _, l in ipairs(t.fields) do ns:Print("  " .. l) end
-            ns:Print("found after the update called from:")
+            ns:Print("stack:")
             for l in t.stack:gmatch("[^\n]+") do ns:Print("  " .. l) end
         end
     end
