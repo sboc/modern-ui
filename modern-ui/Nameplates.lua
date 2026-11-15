@@ -28,6 +28,9 @@ local MAX_ICONS = 6
 local FRIENDLY_BAR_WIDTH = 0.6    -- friendly bar width as a fraction of the plate width
 local FRIENDLY_ALPHA = 0.7         -- friendly bar opacity
 local FRIENDLY_BAR_HEIGHT = 1   -- friendly bar: thin line under the name
+local COMBO_HEIGHT = 5             -- combo point strip under the target's health bar
+local COMBO_GAP = 2
+local COMBO_COLOR = { 1, 0.82, 0.1 }   -- (as on the target frame)
 
 ----------------------------------------------------------------------
 -- Helpers
@@ -157,6 +160,14 @@ local function createFrame(plate)
     return f
 end
 
+-- the cast bar hangs under the health bar, or under the combo points while they show
+local function anchorCast(f)
+    local y = f.comboShown and -(3 + COMBO_HEIGHT + 2) or -3
+    f.cast:ClearAllPoints()
+    f.cast:SetPoint("TOPLEFT", f, "BOTTOMLEFT", cfg().castHeight + 2, y)
+    f.cast:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, y)
+end
+
 local function layout(f)
     local c = cfg()
     local w, h = c.width, c.height
@@ -201,9 +212,7 @@ local function layout(f)
     f.raid:SetPoint("RIGHT", f, "LEFT", -3, 0)
 
     local ch = c.castHeight
-    f.cast:ClearAllPoints()
-    f.cast:SetPoint("TOPLEFT", f, "BOTTOMLEFT", ch + 2, -3)
-    f.cast:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, -3)
+    anchorCast(f)
     f.cast:SetHeight(ch)
     f.cast.icon:ClearAllPoints()
     f.cast.icon:SetPoint("TOPRIGHT", f.cast, "TOPLEFT", -2, 0)
@@ -502,6 +511,93 @@ local function updateAuras(f)
     fillIcons(f, f.buffIcons, "HELPFUL", c.showBuffs, { 0, 0, 0 })
 end
 
+-- Combo points: yours, on your target (vanilla rules), drawn as a strip of pips under the target's health bar.
+-- Only one plate shows them at a time: the one for your current target.
+local comboOwner
+
+local function comboCount()
+    local n, max = 0, 5
+    pcall(function()
+        local pt = Enum and Enum.PowerType and Enum.PowerType.ComboPoints
+        if pt and UnitPower then
+            local v = UnitPower("player", pt)
+            if type(v) == "number" and not secret(v) then n = v end
+            local m = UnitPowerMax and UnitPowerMax("player", pt)
+            if type(m) == "number" and not secret(m) and m > 0 then max = m end
+        end
+        if n == 0 and GetComboPoints then
+            local v = GetComboPoints("player", "target")
+            if type(v) == "number" and not secret(v) then n = v end
+        end
+    end)
+    max = math.min(math.max(max, 1), 7)
+    return math.min(n, max), max
+end
+
+local function ensureComboPips(f)
+    if f.comboBar then return end
+    local bar = CreateFrame("Frame", nil, f)
+    bar:EnableMouse(false)
+    bar:Hide()
+    bar.pips = {}
+    for i = 1, 7 do
+        local pip = CreateFrame("Frame", nil, bar)
+        pip.bg = pip:CreateTexture(nil, "BACKGROUND")
+        pip.bg:SetAllPoints()
+        pip.bg:SetColorTexture(0.03, 0.03, 0.04, 0.9)
+        pip.fill = pip:CreateTexture(nil, "ARTWORK")
+        pip.fill:SetPoint("TOPLEFT", 1, -1)
+        pip.fill:SetPoint("BOTTOMRIGHT", -1, 1)
+        pip.fill:SetColorTexture(COMBO_COLOR[1], COMBO_COLOR[2], COMBO_COLOR[3], 1)
+        pip.borders = UI.AddBorder(pip, 1, 0, 0, 0, 1, "OVERLAY")
+        bar.pips[i] = pip
+    end
+    f.comboBar = bar
+end
+
+local function setCombo(f, n, max)
+    local shown = n > 0
+    if shown then
+        ensureComboPips(f)
+        local bar = f.comboBar
+        bar:ClearAllPoints()
+        bar:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
+        bar:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, -2)
+        bar:SetHeight(COMBO_HEIGHT)
+        local w = ((f:GetWidth() or 0) - (max - 1) * COMBO_GAP) / max
+        for i, pip in ipairs(bar.pips) do
+            if i <= max then
+                pip:ClearAllPoints()
+                pip:SetPoint("TOPLEFT", bar, "TOPLEFT", (i - 1) * (w + COMBO_GAP), 0)
+                pip:SetSize(w, COMBO_HEIGHT)
+                pip.fill:SetShown(i <= n)
+                pip:Show()
+            else
+                pip:Hide()
+            end
+        end
+        bar:Show()
+    elseif f.comboBar then
+        f.comboBar:Hide()
+    end
+    if f.comboShown ~= shown then
+        f.comboShown = shown
+        anchorCast(f)
+    end
+end
+
+local function updateCombo()
+    local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit("target")
+    local f = plate and not (plate.IsForbidden and plate:IsForbidden()) and plate.molFrame
+    if f and (not f.unit or f.friendly) then f = nil end
+    if comboOwner and comboOwner ~= f then setCombo(comboOwner, 0, 5) end
+    comboOwner = f
+    if not f then return end
+    local n, max = 0, 5
+    if cfg().showCombo then n, max = comboCount() end
+    setCombo(f, n, max)
+end
+
 local function updateAll(f)
     if not f.unit then return end
     updateLevel(f)
@@ -639,6 +735,7 @@ local function onAdded(unit)
     layout(f)
     f:Show()
     updateAll(f)
+    pcall(updateCombo)
 end
 
 local function onRemoved(unit)
@@ -651,6 +748,7 @@ local function onRemoved(unit)
         f.cast:SetScript("OnUpdate", nil)
         f.cast:Hide()
         f:Hide()
+        if f == comboOwner then pcall(updateCombo) end
     end
 end
 
@@ -705,6 +803,11 @@ function onEvent(_, event, unit)
             updateOutline(f)
             if f.plate then hideBlizzard(f.plate) end   -- Blizzard re-shows its target outline on a target change
         end
+        pcall(updateCombo)
+        return
+    end
+    if event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_COMBO_POINTS" then
+        if unit == "player" or event == "UNIT_COMBO_POINTS" then pcall(updateCombo) end
         return
     end
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
@@ -788,6 +891,9 @@ function NP:Start()
     ev:RegisterEvent("RAID_TARGET_UPDATE")
     ev:RegisterEvent("PLAYER_REGEN_DISABLED")
     ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+    pcall(ev.RegisterUnitEvent, ev, "UNIT_POWER_UPDATE", "player")
+    pcall(ev.RegisterUnitEvent, ev, "UNIT_MAXPOWER", "player")
+    pcall(ev.RegisterEvent, ev, "UNIT_COMBO_POINTS")   -- (older clients)
     local acc = 0
     ev:SetScript("OnUpdate", function(_, dt)
         acc = acc + dt
@@ -825,5 +931,6 @@ function NP:Apply()
             layout(f)
             updateAll(f)
         end
+        pcall(updateCombo)
     end
 end

@@ -138,6 +138,7 @@ ns.defaults = {
         showHealthText = true, showLevel = true, showCast = true, showDebuffs = true, onlyMyDebuffs = false, showBuffs = true, debuffSize = 22,
         debuffTimer = true,   -- time remaining on the debuff icons
         highlightTarget = true, threatOutline = true, targetScale = 1.1, dimOthers = true, dimAlpha = 0.75,
+        showCombo = true,     -- your combo points under your target's nameplate
     },
     damagemeter = {
         enabled = true, hideBlizzard = true, width = 219, rows = 8, rowHeight = 23, scale = 1,

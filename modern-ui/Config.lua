@@ -469,6 +469,7 @@ local function nameplateOptions()
         Check("nameplates.onlyMyDebuffs", "Only my own debuffs"),
         Check("nameplates.debuffTimer", "Time remaining on debuffs"),
         Check("nameplates.showBuffs", "Buffs on the unit"),
+        Check("nameplates.showCombo", "Combo points under your target's nameplate"),
         Range("nameplates.debuffSize", "Debuff icon size", 10, 36, 1, px),
         Header("Highlights"),
         Check("nameplates.highlightTarget", "White outline on your target"),
