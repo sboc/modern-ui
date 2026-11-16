@@ -146,7 +146,28 @@ local function updateHealth(f)
     f.hpText:SetText(text)
 end
 
+-- Player frame: a druid in a form that does not use mana (cat, bear, travel, ...) gets a thin mana strip
+-- along the top of the power bar (Blizzard's alternate mana bar).
+local MANA = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+local function updateMana(f)
+    local bar = f.mana
+    if not bar then return end
+    local cfg = f.cfg
+    local show = false
+    if cfg and (cfg.manaHeight or 0) > 0 and select(2, UnitClass("player")) == "DRUID" then
+        local ok, res = pcall(function()
+            if UnitPowerType("player") == MANA then return false end
+            bar:SetMinMaxValues(0, UnitPowerMax("player", MANA))
+            setBar(bar, UnitPower("player", MANA))
+            return true
+        end)
+        show = ok and res
+    end
+    bar:SetShown(show and true or false)
+end
+
 local function updatePower(f)
+    updateMana(f)
     local unit, cfg = f.unit, f.cfg
     if not cfg or not cfg.showPower or not UnitExists(unit) then return end
     local ptype = UnitPowerType(unit)
@@ -632,6 +653,14 @@ local function createUnitFrame(unit, name, cfgKey)
     f.heal:SetValue(0)
     f.heal:Hide()
     pcall(f.health.SetClipsChildren, f.health, true)
+    if cfgKey == "player" then
+        f.mana = newBar(f)
+        f.mana:SetFrameLevel(f.health:GetFrameLevel() + 2)   -- over the power bar, under the overlay
+        f.mana.bg = f.mana:CreateTexture(nil, "BACKGROUND")
+        f.mana.bg:SetAllPoints()
+        f.mana.bg:SetColorTexture(0.03, 0.03, 0.04, 0.9)
+        f.mana:Hide()
+    end
 
     f.overlay = CreateFrame("Frame", nil, f)
     f.overlay:SetAllPoints()
@@ -957,6 +986,19 @@ local function configureFrame(f, scale)
     end
     layoutHealth(f)
     f.absorb:SetAllPoints(f.health)
+    if f.mana then
+        -- top edge of the power bar, or the bottom of the health bar when there is no power bar
+        local over = pH > 0 and f.power or f.health
+        local mH = math.min(cfg.manaHeight or 0, math.max(1, (pH > 0 and pH or h) - 1))
+        f.mana:SetStatusBarTexture(tex)
+        -- (after the texture: setting a texture drops the color)
+        local c = PowerBarColor and PowerBarColor.MANA
+        f.mana:SetStatusBarColor(c and c.r or 0, c and c.g or 0, c and c.b or 1)
+        f.mana:ClearAllPoints()
+        f.mana:SetPoint(pH > 0 and "TOPLEFT" or "BOTTOMLEFT", over)
+        f.mana:SetPoint(pH > 0 and "TOPRIGHT" or "BOTTOMRIGHT", over)
+        f.mana:SetHeight(math.max(1, mH))
+    end
 
     local fs = math.max(8, math.min(ns.db.general.fontSize, math.floor(h * 0.45)))
     if (cfg.fontSize or 0) > 0 then fs = cfg.fontSize end   -- own text size for this frame

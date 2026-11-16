@@ -705,6 +705,10 @@ local function frameOptions(key, label, opts)
     if key == "target" then
         table.insert(o, 16, Check(b .. ".showCombo", "Show combo points"))
     end
+    if key == "player" then
+        -- after "Show power text"
+        table.insert(o, 13, Range(b .. ".manaHeight", "Druid: mana bar height in forms (0 = off)", 0, 6, 1, px))
+    end
     if opts.group then
         o[#o + 1] = Header("Stacking")
         o[#o + 1] = Range(b .. ".spacing", "Spacing between frames", 0, 40, 1, px)

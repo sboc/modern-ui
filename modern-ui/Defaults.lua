@@ -203,10 +203,13 @@ ns.defaults = {
         wheel = { up = "", down = "", shiftUp = "", shiftDown = "", ctrlUp = "", ctrlDown = "", altUp = "", altDown = "" },
         frames = {
             -- player / target are 200 wide: they sit over the left / right ends of the stack, above the focus / target of target row
-            player = merge(frameBase, { width = 200, height = 52, powerHeight = 10, castHeight = 18, showCastbar = true,
+            -- manaHeight: druid mana strip on the power bar while in a form without mana (0 = off)
+            player = merge(frameBase, { width = 200, height = 52, powerHeight = 16, showPowerText = true, manaHeight = 2,
+                castHeight = 18, showCastbar = true,
                 castAnchor = "bars", showBuffs = true, showDebuffs = true, aurasAbove = true, auraSize = 22, auraPerRow = 8,
                 auraCount = 16 }),
-            target = merge(frameBase, { width = 200, height = 52, powerHeight = 10, castHeight = 3, showCastbar = true,
+            target = merge(frameBase, { width = 200, height = 52, powerHeight = 16, showPowerText = true, castHeight = 3,
+                showCastbar = true,
                 castAnchor = "inside", aurasAbove = true, showLevel = true, showCombo = true, showBuffs = true,
                 showDebuffs = true, onlyMyDebuffs = false, auraSize = 22, auraPerRow = 8, auraCount = 16 }),
             targettarget = merge(frameBase, { width = 200, height = 32, showPower = true, showHealthText = true,

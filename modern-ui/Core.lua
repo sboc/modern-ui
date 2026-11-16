@@ -463,7 +463,7 @@ function ns:CheckSetup()
     C_Timer.After(1.5, attempt)
 end
 
-ns.DB_VERSION = 44
+ns.DB_VERSION = 45
 
 -- Settings that changed meaning between releases.
 function ns:Migrate()
@@ -529,6 +529,17 @@ function ns:Migrate()
         if type(p) == "table" and p.width == 51 and p.height == 51 then
             p.fontSize, p.textStack = 9, true
             if p.healthFormat == nil or p.healthFormat == "" then p.healthFormat = "PERCENT" end
+        end
+    end
+    if v < 45 then
+        -- player / target power bars are taller (taken from the health bar) and show the power amount:
+        -- bump profiles still on the old defaults
+        local fr = db.unitframes and db.unitframes.frames
+        for _, u in ipairs({ "player", "target" }) do
+            local c = fr and fr[u]
+            if type(c) == "table" and c.powerHeight == 10 and not c.showPowerText then
+                c.powerHeight, c.showPowerText = 16, true
+            end
         end
     end
     db.dbVersion = ns.DB_VERSION
