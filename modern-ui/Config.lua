@@ -708,7 +708,7 @@ local function frameOptions(key, label, opts)
     end
     if key == "player" then
         -- after "Show power text"
-        table.insert(o, 13, Range(b .. ".manaHeight", "Druid: mana bar height in forms (0 = off)", 0, 6, 1, px))
+        table.insert(o, 13, Range(b .. ".manaHeight", "Druid in forms: rage / energy strip height, mana stays on the power bar (0 = off)", 0, 6, 1, px))
     end
     if opts.group then
         o[#o + 1] = Header("Stacking")

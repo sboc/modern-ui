@@ -146,36 +146,50 @@ local function updateHealth(f)
     f.hpText:SetText(text)
 end
 
--- Player frame: a druid in a form that does not use mana (cat, bear, travel, ...) gets a thin mana strip
--- along the top of the power bar (Blizzard's alternate mana bar).
+-- Player frame: a druid in a form that does not use mana (cat, bear, travel, ...) keeps mana on the power bar
+-- (bar, color and text) and gets the form's rage / energy as a thin strip along its top.
 local MANA = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
-local function updateMana(f)
+
+local function manaColor()
+    local c = PowerBarColor and PowerBarColor.MANA
+    return c and c.r or 0, c and c.g or 0, c and c.b or 1
+end
+
+-- the form's power type while the strip is in use, else nil
+local function formPower(f)
+    local cfg = f.cfg
+    if not (f.mana and cfg and (cfg.manaHeight or 0) > 0) or select(2, UnitClass("player")) ~= "DRUID" then return end
+    local ok, ptype = pcall(function()
+        local p = UnitPowerType("player")
+        if p ~= MANA then return p end
+    end)
+    return ok and ptype or nil
+end
+
+local function updateStrip(f, form)
     local bar = f.mana
     if not bar then return end
-    local cfg = f.cfg
-    local show = false
-    if cfg and (cfg.manaHeight or 0) > 0 and select(2, UnitClass("player")) == "DRUID" then
-        local ok, res = pcall(function()
-            if UnitPowerType("player") == MANA then return false end
-            bar:SetMinMaxValues(0, UnitPowerMax("player", MANA))
-            setBar(bar, UnitPower("player", MANA))
-            return true
+    if form then
+        pcall(function()
+            bar:SetMinMaxValues(0, UnitPowerMax("player", form))
+            setBar(bar, UnitPower("player", form))
         end)
-        show = ok and res
+        bar:SetStatusBarColor(powerColor("player"))
     end
-    bar:SetShown(show and true or false)
+    bar:SetShown(form ~= nil)
 end
 
 local function updatePower(f)
-    updateMana(f)
+    local form = formPower(f)
+    updateStrip(f, form)
     local unit, cfg = f.unit, f.cfg
     if not cfg or not cfg.showPower or not UnitExists(unit) then return end
-    local ptype = UnitPowerType(unit)
+    local ptype = form and MANA or UnitPowerType(unit)
     pcall(function()
         f.power:SetMinMaxValues(0, UnitPowerMax(unit, ptype))
         setBar(f.power, UnitPower(unit, ptype))
     end)
-    f.power:SetStatusBarColor(powerColor(unit))
+    if form then f.power:SetStatusBarColor(manaColor()) else f.power:SetStatusBarColor(powerColor(unit)) end
     if cfg.showPowerText then
         local ok, s = pcall(function() return ns.ShortNumber(UnitPower(unit, ptype)) end)
         f.powerText:SetText(ok and s or "")
@@ -992,8 +1006,7 @@ local function configureFrame(f, scale)
         local mH = math.min(cfg.manaHeight or 0, math.max(1, (pH > 0 and pH or h) - 1))
         f.mana:SetStatusBarTexture(tex)
         -- (after the texture: setting a texture drops the color)
-        local c = PowerBarColor and PowerBarColor.MANA
-        f.mana:SetStatusBarColor(c and c.r or 0, c and c.g or 0, c and c.b or 1)
+        f.mana:SetStatusBarColor(powerColor("player"))
         f.mana:ClearAllPoints()
         f.mana:SetPoint(pH > 0 and "TOPLEFT" or "BOTTOMLEFT", over)
         f.mana:SetPoint(pH > 0 and "TOPRIGHT" or "BOTTOMRIGHT", over)

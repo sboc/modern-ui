@@ -203,7 +203,7 @@ ns.defaults = {
         wheel = { up = "", down = "", shiftUp = "", shiftDown = "", ctrlUp = "", ctrlDown = "", altUp = "", altDown = "" },
         frames = {
             -- player / target are 200 wide: they sit over the left / right ends of the stack, above the focus / target of target row
-            -- manaHeight: druid mana strip on the power bar while in a form without mana (0 = off)
+            -- manaHeight: druid in a form without mana: mana stays on the power bar, rage / energy strip along its top (0 = off)
             player = merge(frameBase, { width = 200, height = 52, powerHeight = 16, showPowerText = true, manaHeight = 2,
                 castHeight = 18, showCastbar = true,
                 castAnchor = "bars", showBuffs = true, showDebuffs = true, aurasAbove = true, auraSize = 22, auraPerRow = 8,
