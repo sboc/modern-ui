@@ -258,6 +258,57 @@ local function onSpell(tooltip, data)
     end)
 end
 
+-- Crafting windows: an item shown from one (reagents, the made item) gets a line per character whose saved bank
+-- holds some, read from the copies the bags module keeps (each bank as of that character's last banker visit).
+-- Reached two ways, since a client may not route the crafting tooltips through TooltipDataProcessor: the item
+-- post-call (owner inside a crafting window) and hooks on the crafting Set* methods. molBankDone keeps it to one
+-- block per tooltip content; it is cleared with the tooltip.
+local CRAFT_FRAMES = { TradeSkillFrame = true, CraftFrame = true, ProfessionsFrame = true, ClassicProfessionFrame = true }
+
+local function inCraftWindow(tooltip)
+    local owner = tooltip.GetOwner and tooltip:GetOwner()
+    for _ = 1, 10 do
+        if not owner then return false end
+        local name = owner.GetName and owner:GetName()
+        if name and CRAFT_FRAMES[name] then return true end
+        owner = owner.GetParent and owner:GetParent()
+    end
+    return false
+end
+
+local function addBankCounts(tooltip)
+    local c = ns.db and cfg()
+    if not (c and c.enabled and c.bankReagents) or tooltip ~= _G.GameTooltip or tooltip.molBankDone then return end
+    if not (ns.CustomBags and ns.CustomBags.BankCounts) then return end
+    if tooltip.IsForbidden and tooltip:IsForbidden() then return end
+    pcall(function()
+        local _, link = tooltip:GetItem()
+        if type(link) ~= "string" or ns.IsSecret(link) then return end
+        local id = tonumber(link:match("item:(%d+)"))
+        if not id then return end
+        tooltip.molBankDone = true
+        local rows = ns.CustomBags:BankCounts(id)
+        if #rows == 0 then return end
+        local a = UI.colors.accent
+        tooltip:AddLine("In bank:", a[1], a[2], a[3])
+        for _, r in ipairs(rows) do tooltip:AddDoubleLine("  " .. r.label, tostring(r.count), 1, 1, 1, 1, 1, 1) end
+        tooltip:Show()
+    end)
+end
+
+local function onCraftItem(tooltip)
+    if tooltip == _G.GameTooltip and not tooltip.molBankDone and inCraftWindow(tooltip) then addBankCounts(tooltip) end
+end
+
+local function hookCraftTooltips()
+    local tt = _G.GameTooltip
+    if not tt then return end
+    pcall(tt.HookScript, tt, "OnTooltipCleared", function(self) self.molBankDone = nil end)
+    for _, m in ipairs({ "SetTradeSkillItem", "SetCraftItem", "SetRecipeReagentItem" }) do
+        if type(tt[m]) == "function" then pcall(hooksecurefunc, tt, m, addBankCounts) end
+    end
+end
+
 local function hookStatusBar()
     local sb = _G.GameTooltipStatusBar
     if not (sb and sb.HookScript) then return end
@@ -330,9 +381,11 @@ function TT:Start()
     started = true
     hookAnchor()
     hookStatusBar()
+    hookCraftTooltips()
     local tdp = _G.TooltipDataProcessor
     if tdp and tdp.AddTooltipPostCall and Enum and Enum.TooltipDataType then
         pcall(tdp.AddTooltipPostCall, Enum.TooltipDataType.Item, onItem)
+        pcall(tdp.AddTooltipPostCall, Enum.TooltipDataType.Item, onCraftItem)
         pcall(tdp.AddTooltipPostCall, Enum.TooltipDataType.Unit, colorName)
         if Enum.TooltipDataType.Spell then pcall(tdp.AddTooltipPostCall, Enum.TooltipDataType.Spell, onSpell) end
     end

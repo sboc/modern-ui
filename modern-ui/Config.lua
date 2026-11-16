@@ -447,6 +447,7 @@ local function tooltipOptions()
         Check("tooltip.className", "Class / reaction colored name line on unit tooltips"),
         Check("tooltip.classBar", "Class / reaction colored health bar on unit tooltips"),
         Check("tooltip.perMana", "Damage / healing per mana (DPM / HPM) on spell tooltips"),
+        Check("tooltip.bankReagents", "Crafting windows: items show how many each character has in the bank (as of their last banker visit)"),
         Range("tooltip.bgAlpha", "Background opacity", 0.3, 1, 0.02, pct),
         Range("tooltip.fontSize", "Font size (0 = leave as is)", 0, 24, 1),
         Header("Position"),

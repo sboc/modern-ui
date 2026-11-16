@@ -1010,6 +1010,21 @@ local function charLabel(key, s)
     return col and string.format("|cff%02x%02x%02x%s|r", col.r * 255, col.g * 255, col.b * 255, label) or label
 end
 
+-- every saved bank holding an item: { { label = class colored character name, count = n }, ... } sorted by name
+function CB:BankCounts(itemID)
+    local out = {}
+    if not (ModernUIDB and ModernUIDB.inventory) then return out end
+    for key, s in pairs(ModernUIDB.inventory) do
+        local n = 0
+        for _, it in ipairs(s.bank and s.bank.items or {}) do
+            if it.id == itemID then n = n + (it.count or 1) end
+        end
+        if n > 0 then out[#out + 1] = { label = charLabel(key, s), count = n, sort = (s.name or key):lower() } end
+    end
+    table.sort(out, function(a, b) return a.sort < b.sort end)
+    return out
+end
+
 local function showSaved(key, view)
     viewing.key, viewing.view = key or viewing.key, view or viewing.view
     viewer.lastSig = nil
