@@ -288,26 +288,31 @@ end
 
 BW.RequestRestyle = requestRestyle
 
--- Bag windows sit on DIALOG; the loot window (opening clams, caches, ...) defaults to a lower strata and would
--- open behind them. Lift it to the same strata and put it on top whenever it shows.
-local lootLifted = false
-local function liftLootFrame()
-    local lf = _G.LootFrame
-    if lootLifted or type(lf) ~= "table" or not lf.HookScript then return end
-    lootLifted = true
+-- Bag windows (skinned and grouped) sit on DIALOG; the loot window (opening clams, caches, ...) and the stack split
+-- window (shift-click a stack) default to a lower strata or level and would open behind them. Lift each to the same
+-- strata and put it on top whenever it shows.
+local POPUPS = { "LootFrame", "StackSplitFrame" }
+local popupsLifted = false
+local function liftPopups()
+    if popupsLifted then return end
+    popupsLifted = true
     local function lift(self)
-        if not (ns.db and cfg().enabled) then return end
+        if not (ns.db and (cfg().enabled or ns.db.custombags.enabled)) then return end
         if self:GetFrameStrata() ~= "DIALOG" then pcall(self.SetFrameStrata, self, "DIALOG") end
         pcall(self.Raise, self)
     end
-    pcall(lf.HookScript, lf, "OnShow", lift)
-    if lf:IsShown() then lift(lf) end
+    for _, name in ipairs(POPUPS) do
+        local f = _G[name]
+        if type(f) == "table" and f.HookScript then
+            pcall(f.HookScript, f, "OnShow", lift)
+            if f:IsShown() then lift(f) end
+        end
+    end
 end
 
 function BW:Start()
     if started then return end
     started = true
-    liftLootFrame()
     for _, e in ipairs({ "BAG_UPDATE_DELAYED", "BAG_UPDATE", "ITEM_LOCK_CHANGED", "INVENTORY_SEARCH_UPDATE", "BAG_NEW_ITEMS_UPDATED" }) do
         ns:On(e, requestRestyle)
     end
@@ -334,6 +339,7 @@ function BW:ResetPositions()
 end
 
 function BW:Init()
+    liftPopups()   -- the grouped bag windows need it too, with the bag skin off
     if not ns.db.bagwindows.enabled then return end
     self:Start()
 end
