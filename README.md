@@ -12,6 +12,7 @@ Copy or symlink the `modern-ui/` folder into `World of Warcraft/_forever_/Interf
 | `/mui wizard` | setup wizard (also runs automatically on first load) |
 | `/mui unlock` / `lock` | drag frames; arrow keys nudge, right-click resets one |
 | `/mui reset` | reset active profile to defaults |
+| `/mui bank` | saved bank and bags of every character, viewable anywhere (bank saved on each banker visit) |
 | `/mui food` | print the food / water the auto macros would pick |
 | `/mui kb` | hover key binding: hover a button, press a key / mouse button / wheel (Escape clears) |
 

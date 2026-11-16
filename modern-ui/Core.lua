@@ -747,6 +747,8 @@ SlashCmdList["MODERNUI"] = function(msg)
         end)
     elseif cmd == "reload" or cmd == "rl" then
         ReloadUI()
+    elseif cmd == "bank" then
+        if ns.CustomBags then ns.CustomBags:ShowSaved("bank") end
     elseif cmd == "kb" or cmd == "bind" or cmd == "keybind" then
         if ns.KeyBind then ns.KeyBind:Toggle() end
     elseif cmd == "unlock" or cmd == "move" then
@@ -807,6 +809,6 @@ SlashCmdList["MODERNUI"] = function(msg)
     elseif cmd == "chat" and ns.Chat and ns.Chat.Debug then
         ns.Chat:Debug()
     else
-        ns:Print("Commands: /mui (config), /mui wizard, /mui unlock, /mui lock, /mui kb (hover key binding), /mui reset, /mui reload, /mui test party, /mui chat (chat diagnostics)")
+        ns:Print("Commands: /mui (config), /mui wizard, /mui unlock, /mui lock, /mui kb (hover key binding), /mui bank (saved bank / other characters), /mui reset, /mui reload, /mui test party, /mui chat (chat diagnostics)")
     end
 end

@@ -34,6 +34,7 @@ A complete, flat, modern replacement for the default WoW interface, built for **
 | `/mui wizard` | Setup wizard |
 | `/mui unlock` / `lock` | Move frames |
 | `/mui reset` | Reset the active profile |
+| `/mui bank` | View your bank anywhere, and your other characters' bags and bank |
 | `/mui food` | Show what the food and water macros would pick |
 
 ## Notes

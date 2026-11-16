@@ -8,6 +8,8 @@ local BW = ns.BagWindows
 -- exactly like the default bags. Sections come from the item class; items can be moved into any section (or into
 -- your own sections) by dragging them onto a section header. Sections and assignments are shared by both windows.
 -- Buttons cannot be moved or shown in combat, so layout changes made in combat wait until it ends.
+-- A third, read-only window shows saved copies of the bags and bank of every character on the account, so the bank
+-- can be looked through away from a banker and other characters' items can be checked.
 local CB = ns:NewModule("custombags")
 ns.CustomBags = CB
 
@@ -152,7 +154,7 @@ end
 local function categoryOf(e)
     local pin = cfg().pins[e.id]
     if pin and validKey(pin) then return pin end
-    if cfg().showNew and isNew(e.bag, e.slot) then return "NEW" end
+    if cfg().showNew and not e.saved and isNew(e.bag, e.slot) then return "NEW" end
     if e.quality == 0 then return "JUNK" end
     local classID, subClassID = classOf(e.id, e.link)
     if classID == 0 then
@@ -180,6 +182,7 @@ CB.RequestAll = requestAll
 -- Items
 ----------------------------------------------------------------------
 local function gather(w)
+    if w.spec.gather then return w.spec.gather(w) end
     local entries, empties = {}, {}
     for _, bag in ipairs(w.spec.bags()) do
         for slot = 1, numSlots(bag) do
@@ -268,8 +271,9 @@ local function updateButton(w, btn, e)
     if btn.JunkIcon and btn.JunkIcon.SetShown then
         btn.JunkIcon:SetShown(info and e.quality == 0 and not info.hasNoValue or false)
     end
-    if info then updateCooldown(btn, e.bag, e.slot) elseif btn.Cooldown then pcall(btn.Cooldown.Clear, btn.Cooldown) end
-    if ns.ItemInfo then ns.ItemInfo.Decorate(btn, info and e.link or nil, info and isNew(e.bag, e.slot), "bags") end
+    if info and not e.saved then updateCooldown(btn, e.bag, e.slot) elseif btn.Cooldown then pcall(btn.Cooldown.Clear, btn.Cooldown) end
+    btn.molLink = e.link
+    if ns.ItemInfo then ns.ItemInfo.Decorate(btn, info and e.link or nil, info and not e.saved and isNew(e.bag, e.slot), "bags") end
     local dim = false
     if w.search ~= "" and info then dim = not (e.name:lower():find(w.search, 1, true)) end
     -- Trash button on: only the cheap gray stacks stay bright
@@ -367,9 +371,30 @@ local function createButton(w, bag, slot)
     return btn
 end
 
+-- a picture of a saved item (no bag / slot behind it): tooltip, shift-click to link, ctrl-click to try on
+local function createSavedButton(w, bag, slot)
+    local ok, btn = pcall(CreateFrame, "ItemButton", nil, w.content)
+    if not ok or not btn then ok, btn = pcall(CreateFrame, "Button", nil, w.content, "ItemButtonTemplate") end
+    if not ok or not btn then return end
+    if BW and BW.StyleSlot then pcall(BW.StyleSlot, btn) end
+    btn:SetScript("OnEnter", function(self)
+        if not self.molLink then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        pcall(GameTooltip.SetHyperlink, GameTooltip, self.molLink)
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("OnClick", function(self)
+        if self.molLink and HandleModifiedItemClick then pcall(HandleModifiedItemClick, self.molLink) end
+    end)
+    w.buttons[bag] = w.buttons[bag] or {}
+    w.buttons[bag][slot] = btn
+    return btn
+end
+
 local function getButton(w, bag, slot)
     local t = w.buttons[bag]
-    return (t and t[slot]) or createButton(w, bag, slot)
+    return (t and t[slot]) or (w.spec.saved and createSavedButton or createButton)(w, bag, slot)
 end
 
 ----------------------------------------------------------------------
@@ -657,6 +682,7 @@ function Window:Refresh(force)
         end
     end
 
+    if self.spec.status then self.spec.status(self, entries) return end
     local total = #entries + #empties
     self.footFree:SetText(string.format("%d / %d", #entries, total))
     if self.spec.money then self.footMoney:SetText(moneyText(GetMoney and GetMoney() or 0)) end
@@ -727,14 +753,17 @@ function Window:Build()
     end)
     self:ApplyPosition()
 
-    local title = UI.Text(frame, spec.title, "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", PAD + 2, -8)
+    self.title = UI.Text(frame, spec.title, "GameFontNormalLarge")
+    self.title:SetPoint("TOPLEFT", PAD + 2, -8)
 
     local close = UI.Button(frame, "X", 22, 20, function() frame:Hide() end)
     close:SetPoint("TOPRIGHT", -6, -6)
-    local sort = UI.Button(frame, "Sort", 46, 20, function() pcall(spec.sort) end)
-    sort:SetPoint("RIGHT", close, "LEFT", -4, 0)
-    local left = sort
+    local left = close
+    if spec.sort then
+        local sort = UI.Button(frame, "Sort", 46, 20, function() pcall(spec.sort) end)
+        sort:SetPoint("RIGHT", close, "LEFT", -4, 0)
+        left = sort
+    end
     for _, make in ipairs(spec.buttons or {}) do
         local b = make(frame)
         if b then
@@ -798,7 +827,10 @@ local bags = newWindow({
     sort = function()
         if C_Container and C_Container.SortBags then C_Container.SortBags() elseif SortBags then SortBags() end
     end,
-    buttons = { function(parent) return ns.Vendor and ns.Vendor.CreateTrashButton and ns.Vendor:CreateTrashButton(parent, 46, 20) end },
+    buttons = {
+        function(parent) return ns.Vendor and ns.Vendor.CreateTrashButton and ns.Vendor:CreateTrashButton(parent, 46, 20) end,
+        function(parent) return UI.Button(parent, "Bank", 46, 20, function() CB:ShowSaved("bank") end) end,
+    },
     onHide = function() if C_NewItems and C_NewItems.ClearAll then pcall(C_NewItems.ClearAll) end end,
 })
 
@@ -913,6 +945,136 @@ local function hookBankFrame()
     if type(_G.UpdateUIPanelPositions) == "function" then
         hooksecurefunc("UpdateUIPanelPositions", function() if parked then parkBankFrame() end end)
     end
+end
+
+----------------------------------------------------------------------
+-- Saved bags and bank of every character
+----------------------------------------------------------------------
+-- ModernUIDB.inventory["Name-Realm"] = { name, realm, class, money, bags = list, bank = list }, list = { time, slots,
+-- items = { { id, link, count, quality }, ... } }. Account wide, outside the profiles. The bags are saved whenever
+-- they change, the bank only while the character stands at a banker (its contents cannot be read anywhere else).
+local function savedChars()
+    ModernUIDB.inventory = ModernUIDB.inventory or {}
+    return ModernUIDB.inventory
+end
+
+-- nil when an item could not be read (secret values): the previous copy is kept then
+local function snapshot(list)
+    local items, slots = {}, 0
+    for _, bag in ipairs(list) do
+        local n = numSlots(bag)
+        if isSecret(n) then return end
+        slots = slots + n
+        for slot = 1, n do
+            local info = itemInfo(bag, slot)
+            if info and info.itemID then
+                local id, link, count, quality = info.itemID, info.hyperlink, info.stackCount, info.quality
+                if isSecret(id) or isSecret(link) or isSecret(count) or isSecret(quality) then return end
+                items[#items + 1] = { id = id, link = type(link) == "string" and link or nil,
+                                      count = type(count) == "number" and count or 1, quality = type(quality) == "number" and quality or 1 }
+            end
+        end
+    end
+    return { time = time(), slots = slots, items = items }
+end
+
+local function saveInventory()
+    if not ModernUIDB then return end
+    local chars = savedChars()
+    local key = ns:CharKey()
+    local s = chars[key] or {}
+    chars[key] = s
+    s.name, s.realm = ns:CharProfileName(), GetRealmName()
+    s.class = select(2, UnitClass("player"))
+    local money = GetMoney and GetMoney()
+    if type(money) == "number" and not isSecret(money) then s.money = money end
+    s.bags = snapshot(playerBags()) or s.bags
+    if bankOpen then s.bank = snapshot(bankBags()) or s.bank end
+end
+
+local function ago(t)
+    local d = math.max(0, time() - (t or 0))
+    if d < 60 then return "just now" end
+    if d < 3600 then return math.floor(d / 60) .. " min ago" end
+    if d < 86400 then return math.floor(d / 3600) .. " h ago" end
+    return math.floor(d / 86400) .. " d ago"
+end
+
+local viewer
+local viewing = { view = "bank" }   -- which character (key) and which list ("bags" / "bank") the viewer shows
+
+local function charLabel(key, s)
+    local label = s.name or key
+    if s.realm and s.realm ~= GetRealmName() then label = label .. " (" .. s.realm .. ")" end
+    local col = s.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[s.class]
+    return col and string.format("|cff%02x%02x%02x%s|r", col.r * 255, col.g * 255, col.b * 255, label) or label
+end
+
+local function showSaved(key, view)
+    viewing.key, viewing.view = key or viewing.key, view or viewing.view
+    viewer.lastSig = nil
+    viewer:Refresh()
+end
+
+local function savedGather()
+    local s = savedChars()[viewing.key]
+    local list = s and s[viewing.view]
+    local entries = {}
+    local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+    for i, it in ipairs(list and list.items or {}) do
+        local icon = getInstant and select(5, getInstant(it.link or it.id))
+        entries[i] = { saved = true, bag = 1, slot = i, id = it.id, link = it.link, count = it.count or 1, quality = it.quality or 1,
+                       name = it.link and it.link:match("%[(.-)%]") or "", info = { iconFileID = icon, hyperlink = it.link } }
+    end
+    return entries, {}
+end
+
+local function savedStatus(w, entries)
+    local s = savedChars()[viewing.key] or {}
+    local list = s[viewing.view]
+    w.title:SetText(viewing.view == "bank" and "Bank" or "Bags")
+    w.charButton:SetLabel(charLabel(viewing.key, s))
+    w.bagsButton:SetSelected(viewing.view == "bags")
+    w.bankButton:SetSelected(viewing.view == "bank")
+    w.footMoney:SetText(s.money and moneyText(s.money) or "")
+    if list then
+        w.footFree:SetText(string.format("%d / %d   saved %s", #entries, list.slots or #entries, ago(list.time)))
+    else
+        w.footFree:SetText(viewing.view == "bank" and "Not saved yet: visit a banker" or "Not saved yet: log in")
+    end
+end
+
+local function charButton(parent)
+    local b = UI.Button(parent, "", 130, 20)
+    b:SetScript("OnClick", function(self)
+        local items = {}
+        for key, s in pairs(savedChars()) do items[#items + 1] = { value = key, label = charLabel(key, s), sort = (s.name or key):lower() } end
+        table.sort(items, function(a, c) return a.sort < c.sort end)
+        UI.OpenDropdown(self, items, viewing.key, function(key) showSaved(key) end)
+    end)
+    viewer.charButton = b
+    return b
+end
+
+viewer = newWindow({
+    key = "saved", name = "ModernUISavedItemsFrame", title = "Bank", posKey = "savedPosition", defaultPos = { "TOPLEFT", 60, -140 },
+    saved = true, gather = savedGather, status = savedStatus, minWidth = 380,
+    buttons = {
+        function(parent) viewer.bankButton = UI.Button(parent, "Bank", 46, 20, function() showSaved(nil, "bank") end) return viewer.bankButton end,
+        function(parent) viewer.bagsButton = UI.Button(parent, "Bags", 46, 20, function() showSaved(nil, "bags") end) return viewer.bagsButton end,
+        charButton,
+    },
+})
+
+-- view = "bank" / "bags"; the same view again closes the window
+function CB:ShowSaved(view)
+    if not ModernUIDB then return end
+    pcall(saveInventory)
+    view = view or "bank"
+    if viewer:IsOpen() and viewing.view == view then viewer:Close() return end
+    viewing.key = viewing.key or ns:CharKey()
+    viewing.view = view
+    if viewer:IsOpen() then showSaved() elseif not viewer:Open() then ns:Print("Saved items cannot be opened in combat.") end
 end
 
 -- Cursor carrying an item: show every section (and the "new section" drop target) so it can be dropped on one.
@@ -1051,6 +1213,13 @@ function CB:Init()
     ns:On("PLAYER_REGEN_DISABLED", prime)
     ns:On("BANKFRAME_OPENED", onBankOpened)
     ns:On("BANKFRAME_CLOSED", onBankClosed)
+    -- saved copies: on every change (bank changes only arrive while it is open) and once the bank has loaded
+    local function save() pcall(saveInventory) end
+    for _, e in ipairs({ "BAG_UPDATE_DELAYED", "PLAYER_MONEY", "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED",
+                         "BANK_TABS_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGOUT" }) do
+        ns:On(e, save)
+    end
+    ns:On("BANKFRAME_OPENED", function() C_Timer.After(0.5, save) end)
     if cfg().enabled then
         install()
         CB.active = true
