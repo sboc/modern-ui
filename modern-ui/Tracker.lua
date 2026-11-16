@@ -684,6 +684,13 @@ function TR:DebugPlacement()
     frame("minimap", ns.Minimap and ns.Minimap.GetFrame and ns.Minimap:GetFrame())
     local state = f and aprState(f)
     add("APR state", state ~= nil, "owns", f and state and aprOwns(f))
+    -- what the skin panel is fitted to: it reaches down to the lowest shown section
+    frame("panel", panel)
+    eachTracker(function(t)
+        local ok, name = pcall(t.GetName, t)
+        add("  section", ok and name or tostring(t), "shown", t:IsShown(), "h", t:GetHeight(), "b", t:GetBottom(),
+            "contents", t.contentsHeight, "state", t.state, "hasContents", t.hasContents)
+    end)
     for _, line in ipairs(out) do ns:Print(line) end
     ModernUIDB.trackerDebug = out
 end
