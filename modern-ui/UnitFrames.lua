@@ -118,6 +118,9 @@ local function updateHealth(f)
         offline = not UnitIsConnected(unit)
         dead = UnitIsDeadOrGhost(unit)
     end)
+    -- secret booleans (12.x) cannot be tested: treat them as alive / connected
+    if IsSecret(offline) then offline = false end
+    if IsSecret(dead) then dead = false end
     if offline or dead then
         f.health:SetStatusBarColor(0.4, 0.4, 0.4)
     else
@@ -223,8 +226,9 @@ local function updateIcons(f)
         f.raidIcon:Hide(); f.leader:Hide(); f.role:Hide()
         return
     end
+    -- 12.x can hand these back as secret values (no boolean test / compare): treat them as unknown.
     local idx = GetRaidTargetIndex(unit)
-    if idx then
+    if not IsSecret(idx) and idx then
         pcall(SetRaidTargetIconTexture, f.raidIcon, idx)
         f.raidIcon:Show()
     else
@@ -232,10 +236,11 @@ local function updateIcons(f)
     end
     local lead = false
     pcall(function() lead = UnitIsGroupLeader(unit) end)
-    f.leader:SetShown(lead and true or false)
+    f.leader:SetShown(not IsSecret(lead) and lead and true or false)
 
     local role = "NONE"
     pcall(function() role = UnitGroupRolesAssigned(unit) end)
+    if IsSecret(role) then role = "NONE" end
     local atlas = (role == "TANK" and "roleicon-tiny-tank") or (role == "HEALER" and "roleicon-tiny-healer")
         or (role == "DAMAGER" and "roleicon-tiny-dps")
     if atlas and (f.cfgKey == "party" or f.cfgKey == "player") and IsInGroup() then
@@ -291,6 +296,7 @@ local function updateSelection(f)
     if f.unit == "target" or f.unit == "player" then return end
     local sel = false
     pcall(function() sel = UnitIsUnit(f.unit, "target") end)
+    if IsSecret(sel) then sel = false end
     if sel then f.borders:SetColor(1, 1, 1, 1) else f.borders:SetColor(0, 0, 0, 1) end
 end
 
