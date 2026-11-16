@@ -154,6 +154,110 @@ local function colorName(tooltip)
     if r then pcall(line.SetTextColor, line, r, g, b) end
 end
 
+-- Damage / healing per mana on spell tooltips (DPM / HPM), read from the spell's description:
+--  * "14 to 23" counts as the average (18.5); direct and over-time amounts of one spell add up
+--    ("16 to 25 Fire damage and an additional 2 Fire damage over 4 sec" = 22.5)
+--  * "N every X sec" / "N each second" is multiplied out over the spell's duration ("for D sec", "Lasts D sec")
+--  * a clause counts as healing when it mentions heal, else as damage when it mentions damage; a clause with
+--    neither ("and another 98 over 21 sec") belongs to the one before it
+--  * weapon bonuses ("N additional damage"), absorbs, damage to attackers and repeating totem attacks are left out
+local NOT_AMOUNT = {   -- word after a number that makes it a duration / range / count rather than an amount
+    sec = true, second = true, seconds = true, min = true, minute = true, minutes = true,
+    yd = true, yds = true, yard = true, yards = true, mana = true, rage = true, energy = true,
+    target = true, targets = true, time = true, times = true, charge = true, charges = true,
+    stack = true, stacks = true, level = true, additional = true,
+}
+
+local function seconds(n, unit)
+    unit = unit:lower()
+    if unit:find("^sec") then return n end
+    if unit:find("^min") then return n * 60 end
+end
+
+-- first "for N sec" / "lasts N min" in text
+local function durationIn(text)
+    for word, n, unit in text:gmatch("(%a+) (%d+%.?%d*) (%a+)") do
+        word = word:lower()
+        if word == "for" or word == "lasts" then
+            local s = seconds(tonumber(n), unit)
+            if s then return s end
+        end
+    end
+end
+
+local function amount(text, clause, kind, p, q, n)
+    local before, after = clause:sub(1, p - 1):lower(), clause:sub(q)
+    if after:find("^%%") or before:find("absorb%a*%s+$") or before:find("with%s+$") then return 0 end
+    local word = (after:match("^%s+(%a+)") or ""):lower()
+    if kind == "damage" then
+        if not (word == "damage" or (word ~= "additional" and after:find("^%s+%a+ damage"))) then return 0 end
+        if after:lower():find("^%s+%a*%s*damage to %a*self") then return 0 end   -- Hellfire's damage to the caster
+    elseif NOT_AMOUNT[word] then
+        return 0
+    end
+    local rest = after:lower()
+    local every = tonumber(rest:match("every (%d+%.?%d*) sec")) or ((rest:find("each second") or rest:find("every second")) and 1)
+    if not every then return n end
+    local dur = durationIn(after) or durationIn(text)
+    return (dur and every > 0) and n * dur / every or 0
+end
+
+-- returns total damage, total healing in a spell description
+local function spellAmounts(desc)
+    local text = desc:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("[\r\n]+", ". ")
+    text = text:gsub("(%d),(%d%d%d)", "%1%2")
+    text = text:gsub("(%d+%.?%d*) to (%d+%.?%d*)", function(a, b) return tostring((tonumber(a) + tonumber(b)) / 2) end)
+    local damage, healing = 0, 0
+    for sentence in text:gsub("(%d)%.(%d)", "%1\1%2"):gmatch("[^%.]+") do
+        sentence = sentence:gsub("\1", ".")
+        local kind
+        for clause in sentence:gsub(" and ", ","):gmatch("[^,]+") do
+            local low = clause:lower()
+            if low:find("heal") then kind = "heal" elseif low:find("damage") then kind = "damage" end
+            if kind and not (low:find("attacker") or low:find("repeated")) then
+                for p, n, q in clause:gmatch("()(%d+%.?%d*)()") do
+                    local v = amount(text, clause, kind, p, q, tonumber(n))
+                    if kind == "heal" then healing = healing + v else damage = damage + v end
+                end
+            end
+        end
+    end
+    return damage, healing
+end
+
+local function manaCost(spellID)
+    local get = (C_Spell and C_Spell.GetSpellPowerCost) or _G.GetSpellPowerCost
+    local costs = get and get(spellID)
+    if type(costs) ~= "table" then return end
+    local MANA = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+    for _, c in ipairs(costs) do
+        if (c.type == MANA or c.name == "MANA") and not ns.IsSecret(c.cost) and (c.cost or 0) > 0 then return c.cost end
+    end
+end
+
+local function onSpell(tooltip, data)
+    local c = ns.db and cfg()
+    if not (c and c.enabled and c.perMana) or type(data) ~= "table" then return end
+    if tooltip.IsForbidden and tooltip:IsForbidden() then return end
+    pcall(function()
+        local id = data.id
+        if type(id) ~= "number" or ns.IsSecret(id) then return end
+        local cost = manaCost(id)
+        if not cost then return end
+        local getDesc = (C_Spell and C_Spell.GetSpellDescription) or _G.GetSpellDescription
+        local desc = getDesc and getDesc(id)
+        if type(desc) ~= "string" or ns.IsSecret(desc) or desc == "" then return end
+        local damage, healing = spellAmounts(desc)
+        local parts = {}
+        if damage > 0 then parts[#parts + 1] = ("DPM: %.2f"):format(damage / cost) end
+        if healing > 0 then parts[#parts + 1] = ("HPM: %.2f"):format(healing / cost) end
+        if #parts == 0 then return end
+        local a = UI.colors.accent
+        tooltip:AddLine(table.concat(parts, "   "), a[1], a[2], a[3])
+        tooltip:Show()
+    end)
+end
+
 local function hookStatusBar()
     local sb = _G.GameTooltipStatusBar
     if not (sb and sb.HookScript) then return end
@@ -230,6 +334,7 @@ function TT:Start()
     if tdp and tdp.AddTooltipPostCall and Enum and Enum.TooltipDataType then
         pcall(tdp.AddTooltipPostCall, Enum.TooltipDataType.Item, onItem)
         pcall(tdp.AddTooltipPostCall, Enum.TooltipDataType.Unit, colorName)
+        if Enum.TooltipDataType.Spell then pcall(tdp.AddTooltipPostCall, Enum.TooltipDataType.Spell, onSpell) end
     end
     if tdp and tdp.AddTooltipPostCall then
         local all = Enum and Enum.TooltipDataProcessorAllTypes
