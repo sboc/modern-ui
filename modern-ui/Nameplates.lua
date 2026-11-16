@@ -832,6 +832,16 @@ function NP:Debug()
     if not plate then ns:Print("no nameplate for your target (target something with a visible plate)") return end
     local uf = plate.UnitFrame
     local f = plate.molFrame
+    local function call(fn, ...)
+        if not fn then return "nil-api" end
+        local ok, v = pcall(fn, ...)
+        if not ok then return "error" end
+        return b(v)
+    end
+    local unit = plate.namePlateUnitToken or "target"
+    ns:Print(string.format("unit %s player=%s controlled=%s canAttack=%s guid=%s forbidden=%s isPet=%s enemy=%s",
+        tostring(unit), call(UnitIsPlayer, unit), call(UnitPlayerControlled, unit), call(UnitCanAttack, "player", unit),
+        call(UnitGUID, unit), b(plate.IsForbidden and plate:IsForbidden()), tostring(isPet(unit)), tostring(isEnemy(unit))))
     ns:Print(string.format("plate %s alpha=%s | ours: %s shown=%s alpha=%s scale=%s | uf owned=%s",
         tostring(plate.GetName and plate:GetName()), n(plate:GetAlpha()), tostring(f ~= nil),
         b(f and f:IsShown()), n(f and f:GetAlpha()), n(f and f:GetScale()), tostring(uf and owned[uf])))
