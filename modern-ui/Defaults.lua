@@ -181,7 +181,13 @@ ns.defaults = {
               bgAlpha = 0.92, qualityColors = true,
               bossmods = true,     -- BigWigs bar style / DBM timer bars
               lootMover = true },  -- group loot roll frames sit on a Modern UI anchor
-    misc = { fastLoot = true, afkScreen = true, autoThank = true },
+    misc = { fastLoot = true, afkScreen = true, autoThank = true,
+             hideErrors = true,      -- drop the red "not enough rage / not ready yet / out of range" spam
+             openAllMail = true,     -- "Open all" button on the inbox (only when Blizzard has none)
+             autoQuest = false,      -- accept / turn in quests (hold Shift to skip)
+             acceptSummon = false, acceptRes = false, declineDuels = false,
+             acceptInvites = false,  -- group invites from friends and guild members
+    },
     datatexts = { enabled = true, scale = 1, alpha = 1, fontSize = 0, background = true,
                   width = 620,   -- fixed strip width (the action bar stack's); 0 = as wide as its texts
                   gold = true, fps = true, durability = true, bags = true, clock = false,
