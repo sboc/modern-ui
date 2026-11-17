@@ -77,6 +77,7 @@ local function bankBags()
     for i = 1, NUM_BANKBAGSLOTS or 0 do add(last + i) end
     return list
 end
+CB.BankBags = bankBags
 
 local function numSlots(bag)
     local fn = (C_Container and C_Container.GetContainerNumSlots) or GetContainerNumSlots
@@ -894,7 +895,7 @@ end
 
 bank = newWindow({
     key = "bank", name = "ModernUIBankFrame", title = "Bank", posKey = "bankPosition", defaultPos = { "TOPLEFT", 40, -120 },
-    bags = bankBags, slotLabel = "Bank", minWidth = 300,
+    bags = bankBags, slotLabel = "Bank", minWidth = 360,
     sort = function()
         if C_Container and C_Container.SortBank and Enum and Enum.BankType then C_Container.SortBank(Enum.BankType.Character)
         elseif C_Container and C_Container.SortBankBags then C_Container.SortBankBags()
@@ -902,6 +903,7 @@ bank = newWindow({
     end,
     buttons = {
         function(parent) return ns.Vendor and ns.Vendor.CreateDepositButton and ns.Vendor:CreateDepositButton(parent, 60, 20) end,
+        function(parent) return ns.Vendor and ns.Vendor.CreateWithdrawButton and ns.Vendor:CreateWithdrawButton(parent, 66, 20) end,
         blizzardButton,
     },
     -- closing this window (X, Escape) leaves the bank, unless Blizzard's window took over

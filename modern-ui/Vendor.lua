@@ -299,10 +299,10 @@ function V:CreateTrashButton(parent, w, h)
     return b
 end
 
--- Deposit button at the bank: moves every trade goods stack (item class Tradeskill) from the bags into the bank,
--- the same way a right-click does - so it lands in whichever bank tab / panel is open. Whatever does not fit (or
--- cannot go there, e.g. soulbound into the warband bank) stays in the bags.
-local bankOpen, depositing = false, false
+-- Deposit / Withdraw buttons at the bank: move every trade goods stack (item class Tradeskill) from the bags into the
+-- bank, or from the character bank into the bags, the same way a right-click does - so a deposit lands in whichever
+-- bank tab / panel is open. Whatever does not fit (or cannot go there, e.g. soulbound into the warband bank) stays.
+local bankOpen, moving = false, false
 local TRADEGOODS = (Enum and Enum.ItemClass and Enum.ItemClass.Tradegoods) or 7
 
 local function isTradeGood(info)
@@ -313,9 +313,21 @@ local function isTradeGood(info)
     return ok and classID == TRADEGOODS
 end
 
-local function tradeGoodSlots()
+local function playerBags()
     local list = {}
-    for bag = 0, lastBag do
+    for bag = 0, lastBag do list[#list + 1] = bag end
+    return list
+end
+
+-- the character bank containers (old bank and bank bags and / or bank tabs), shared with the grouped bank window
+local function bankBags()
+    local CB = ns.CustomBags
+    return CB and CB.BankBags and CB.BankBags() or {}
+end
+
+local function tradeGoodSlots(bags)
+    local list = {}
+    for _, bag in ipairs(bags) do
         for slot = 1, numSlots(bag) do
             local info = slotInfo(bag, slot)
             if info and not info.isLocked and isTradeGood(info) then list[#list + 1] = { bag = bag, slot = slot } end
@@ -324,16 +336,17 @@ local function tradeGoodSlots()
     return list
 end
 
-function V:DepositTradeGoods()
-    if depositing or not bankOpen then return end
+-- from: bag list to move out of; verb / none / full: chat wording
+local function moveTradeGoods(from, verb, none, full)
+    if moving or not bankOpen then return end
     if CursorHasItem and CursorHasItem() then ns:Print("Drop the item on your cursor first."); return end
-    local list = tradeGoodSlots()
-    if #list == 0 then ns:Print("No trade goods in your bags."); return end
-    depositing = true
+    local list = tradeGoodSlots(from())
+    if #list == 0 then ns:Print(none); return end
+    moving = true
     local i = 1
     -- a few stacks per tick, like selling: moving everything in one frame can be dropped by the server
     local function step()
-        if not bankOpen then depositing = false; return end
+        if not bankOpen then moving = false; return end
         for _ = 1, 6 do
             local it = list[i]
             if not it then break end
@@ -341,29 +354,47 @@ function V:DepositTradeGoods()
             i = i + 1
         end
         if i <= #list then C_Timer.After(0.1, step) return end
-        -- count again once the server has answered: what is still in the bags did not fit
+        -- count again once the server has answered: what is still there did not fit
         C_Timer.After(0.5, function()
-            depositing = false
-            local left = #tradeGoodSlots()
+            moving = false
+            local left = #tradeGoodSlots(from())
             local moved = math.max(0, #list - left)
-            ns:Print(string.format("Deposited %d trade goods stack%s.%s", moved, moved == 1 and "" or "s",
-                left > 0 and string.format(" %d could not be deposited (bank full?).", left) or ""))
+            ns:Print(string.format("%s %d trade goods stack%s.%s", verb, moved, moved == 1 and "" or "s",
+                left > 0 and string.format(" %d could not be moved (%s full?).", left, full) or ""))
         end)
     end
     step()
 end
 
--- also used by the grouped bank window (CustomBags.lua)
-function V:CreateDepositButton(parent, w, h)
-    local b = ns.UI.Button(parent, "Deposit", w or 70, h or 20, function() V:DepositTradeGoods() end)
+function V:DepositTradeGoods()
+    moveTradeGoods(playerBags, "Deposited", "No trade goods in your bags.", "bank")
+end
+
+function V:WithdrawTradeGoods()
+    moveTradeGoods(bankBags, "Withdrew", "No trade goods in your bank.", "bags")
+end
+
+local function bankButton(parent, label, w, h, onClick, title, text)
+    local b = ns.UI.Button(parent, label, w, h, onClick)
     b:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Deposit trade goods", 1, 1, 1)
-        GameTooltip:AddLine("Moves all trade goods from your bags into the open bank tab.", 0.7, 0.7, 0.7)
+        GameTooltip:SetText(title, 1, 1, 1)
+        GameTooltip:AddLine(text, 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
     b:HookScript("OnLeave", function() GameTooltip:Hide() end)
     return b
+end
+
+-- also used by the grouped bank window (CustomBags.lua)
+function V:CreateDepositButton(parent, w, h)
+    return bankButton(parent, "Deposit", w or 70, h or 20, function() V:DepositTradeGoods() end,
+        "Deposit trade goods", "Moves all trade goods from your bags into the open bank tab.")
+end
+
+function V:CreateWithdrawButton(parent, w, h)
+    return bankButton(parent, "Withdraw", w or 70, h or 20, function() V:WithdrawTradeGoods() end,
+        "Withdraw trade goods", "Moves all trade goods from your bank into your bags.")
 end
 
 local depositButton
@@ -372,6 +403,7 @@ local function createDepositButton()
     if depositButton or not bank then return end
     depositButton = V:CreateDepositButton(bank, 70, 20)
     depositButton:SetPoint("TOPRIGHT", bank, "BOTTOMRIGHT", 0, -2)
+    V:CreateWithdrawButton(bank, 70, 20):SetPoint("RIGHT", depositButton, "LEFT", -4, 0)
 end
 
 -- Alt+click an item in a bag toggles its protection
