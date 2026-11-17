@@ -1316,8 +1316,15 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
         for _, f in ipairs(c and c.frames or {}) do
             if f:IsShown() and f.unit then
                 local ok, inRange, checked = pcall(UnitInRange, f.unit)
-                if ok and not IsSecret(inRange) and not IsSecret(checked) then
-                    f:SetAlpha((checked and not inRange) and 0.5 or 1)
+                if ok then
+                    if not IsSecret(checked) and not checked then
+                        f:SetAlpha(1)   -- no range info (yourself, not grouped)
+                    elseif not IsSecret(inRange) then
+                        f:SetAlpha(inRange and 1 or 0.5)
+                    elseif f.SetAlphaFromBoolean then
+                        -- the client hides the answer as a secret value; the frame can still apply it
+                        pcall(f.SetAlphaFromBoolean, f, inRange, 1, 0.5)
+                    end
                 end
             end
         end
