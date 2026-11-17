@@ -35,6 +35,7 @@ There is one standard layout: action bars centered at the bottom, pet and stance
 - Shaman totem bar: one secure button per element with the active totem's timer; left-click recasts the last totem of that element, right-click dismisses it.
 - Temporary weapon enchants (poisons, stones, weapon buffs) with time left. Item level on equipment in bags and on the character frame, equipment set marker, new item outline, junk section value.
 - Unit frames: incoming heals on the health bar, optional "only debuffs I can dispel" filter per frame.
+- Raid frames: one column per raid group (secure group headers, so members re-sort in combat), debuffs inside the frame, out-of-range members fade. Blizzard's raid frames are hidden (the raid manager on the left edge stays); party frames step aside in a raid. `/mui test raid` shows you in group 1.
 - Profiles can be exported / imported as text (Profiles page). The import is a plain parser: no code is run, and values of the wrong type are dropped.
 - Chat: web addresses are clickable and open a copy box. Loot roll frames sit on a movable anchor. BigWigs gets a "Modern UI" bar style, DBM timer bars are restyled (both untested: neither addon was installed while writing).
 - Damage meter: own window drawn from Blizzard's `C_DamageMeter` data (secret-safe). Cooldown manager: Blizzard's viewers are positioned and skinned, not rebuilt.

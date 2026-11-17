@@ -228,6 +228,10 @@ ns.defaults = {
                 auraSize = 16, auraPerRow = 2, auraCount = 4 }),
             boss = merge(frameBase, { width = 200, height = 34, showCastbar = true, showLevel = true,
                 castHeight = 3, castAnchor = "inside" }),
+            -- raid: 8 groups side by side (5 members each), name only, debuffs inside the bottom right corner
+            raid = merge(frameBase, { width = 64, height = 34, spacing = 3, showPower = false, powerHeight = 3,
+                showHealthText = false, healthFormat = "PERCENT", fontSize = 9,
+                showDebuffs = true, auraSize = 14, auraPerRow = 3, auraCount = 3 }),
         },
     },
     positions = {},
@@ -277,6 +281,7 @@ ns.defaults.positions = {
     uf_pet = pos("BOTTOM", -210, 202),
     uf_party = pos("BOTTOM", -499, 262),   -- 4 px above the damage meter (bottom 40 + height 218)
     uf_boss = pos("RIGHT", -30, 150),
+    uf_raid = pos("LEFT", 12, 40),
 
     -- the cooldown manager sits between player and target (same row)
     cdm_essential = pos("BOTTOM", 0, 240),

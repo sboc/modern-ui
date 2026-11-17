@@ -243,7 +243,7 @@ local function updateIcons(f)
     if IsSecret(role) then role = "NONE" end
     local atlas = (role == "TANK" and "roleicon-tiny-tank") or (role == "HEALER" and "roleicon-tiny-healer")
         or (role == "DAMAGER" and "roleicon-tiny-dps")
-    if atlas and (f.cfgKey == "party" or f.cfgKey == "player") and IsInGroup() then
+    if atlas and (f.cfgKey == "party" or f.cfgKey == "raid" or f.cfgKey == "player") and IsInGroup() then
         local ok = pcall(f.role.SetAtlas, f.role, atlas)
         f.role:SetShown(ok)
     else
@@ -510,7 +510,7 @@ local function updateCast(f)
 end
 
 local function updateAll(f)
-    if not f.cfg or not UnitExists(f.unit) then return end
+    if not f.cfg or not f.unit or not UnitExists(f.unit) then return end
     updateName(f)
     updateHealth(f)
     updatePower(f)
@@ -569,6 +569,7 @@ local layoutHealth   -- defined below
 
 local function bindUnitEvents(f, unit)
     f:UnregisterAllEvents()
+    if not unit then return end   -- (an unused raid button: no unit to listen to)
     for event in pairs(UNIT_EVENT_HANDLERS) do
         local u = unit
         if event == "UNIT_TARGET" then u = (unit == "targettarget") and "target" or nil end
@@ -635,10 +636,11 @@ local function applyWheel(f)
     end
 end
 
-local function createUnitFrame(unit, name, cfgKey)
-    local f = CreateFrame("Button", "ModernUI_" .. name, UIParent, "SecureUnitButtonTemplate")
+-- Builds the look and the scripts of a unit frame on a secure unit button: one we created, or one a
+-- secure group header created (raid frames: unit is nil until the header hands one over).
+local function decorate(f, unit, cfgKey)
     f.unit, f.cfgKey = unit, cfgKey
-    f:SetAttribute("unit", unit)
+    if unit then f:SetAttribute("unit", unit) end
     f:SetAttribute("*type1", "target")
     f:SetAttribute("*type2", "togglemenu")
     f:RegisterForClicks("AnyUp")
@@ -765,6 +767,10 @@ local function createUnitFrame(unit, name, cfgKey)
     return f
 end
 
+local function createUnitFrame(unit, name, cfgKey)
+    return decorate(CreateFrame("Button", "ModernUI_" .. name, UIParent, "SecureUnitButtonTemplate"), unit, cfgKey)
+end
+
 ----------------------------------------------------------------------
 -- Configuration of one frame
 ----------------------------------------------------------------------
@@ -851,7 +857,8 @@ end
 
 local function configureAuras(f, cfg)
     local size, per = cfg.auraSize, math.max(1, cfg.auraPerRow)
-    local side = f.isGroup and not cfg.horizontal   -- auras beside the frame, not above / below
+    local inside = f.cfgKey == "raid"   -- raid: small icons inside the frame, bottom right (no room around it)
+    local side = f.isGroup and not cfg.horizontal and not inside   -- auras beside the frame, not above / below
     local castBelow = (cfg.showCastbar and not f.isGroup and not cfg.castAbove and cfg.castAnchor == "frame")
         and (cfg.castHeight + 3) or 0
     local castAbovePad = (cfg.showCastbar and not f.isGroup and cfg.castAbove and cfg.castAnchor == "frame")
@@ -875,7 +882,13 @@ local function configureAuras(f, cfg)
         if buffs and f.unit == "player" then buffs.cancel = true end
         local rowWidth = per * (size + gap)
         local top, bottom
-        if side then
+        if inside then
+            local groups = {}
+            if debuffs then groups[#groups + 1] = debuffs end
+            if buffs then buffs.newLine = debuffs and true or nil; groups[#groups + 1] = buffs end
+            top = { point = { "BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, 2 }, anchor = "BOTTOMRIGHT", growH = "Left",
+                    growV = "Up", rowWidth = rowWidth, groups = groups }
+        elseif side then
             -- beside the frame: debuffs, then buffs on the next row
             local groups = {}
             if debuffs then groups[#groups + 1] = debuffs end
@@ -900,6 +913,8 @@ local function configureAuras(f, cfg)
         end
         ns.Auras.Set(f, "auraTop", f, f.unit, top)
         ns.Auras.Set(f, "auraBottom", f, f.unit, bottom)
+        -- inside the frame: over the health bar, under the name text
+        if inside and f.auraTop then pcall(f.auraTop.SetFrameLevel, f.auraTop, f.health:GetFrameLevel() + 3) end
         return
     end
     f.engineAuras = false
@@ -908,8 +923,13 @@ local function configureAuras(f, cfg)
         box:ClearAllPoints()
         local isBuff = kind == "buffs"
         -- grows upward from the frame top (default for debuffs; buffs too when aurasAbove)
-        local up = not side and (not isBuff or cfg.aurasAbove)
-        if side then
+        local up = inside or (not side and (not isBuff or cfg.aurasAbove))
+        if inside then
+            -- debuffs along the bottom edge, buffs along the top edge, both inside the frame
+            box:SetFrameLevel(f.health:GetFrameLevel() + 3)
+            if isBuff then up = false; box:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -2)
+            else box:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 2, 2) end
+        elseif side then
             if isBuff then box:SetPoint("TOPLEFT", f, "TOPRIGHT", 4, 0)
             else box:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", 4, 0) end
         elseif isBuff and cfg.aurasAbove then
@@ -1078,6 +1098,8 @@ local BLIZZARD = {
     party = { "PartyFrame" },
     boss = { "BossTargetFrameContainer", "Boss1TargetFrame", "Boss2TargetFrame", "Boss3TargetFrame",
              "Boss4TargetFrame", "Boss5TargetFrame" },
+    -- (the raid frame manager on the left edge stays: ready check, markers, raid frame settings)
+    raid = { "CompactRaidFrameContainer" },
 }
 
 local function killBlizzardFor(key)
@@ -1085,6 +1107,9 @@ local function killBlizzardFor(key)
     if not cfg or not cfg.enabled then return end
     for _, n in ipairs(BLIZZARD[key] or {}) do killFrame(_G[n]) end
     if key == "player" and cfg.showCastbar then killFrame(_G.PlayerCastingBarFrame) end
+    if key == "raid" and CompactRaidFrameManager_SetSetting then
+        pcall(CompactRaidFrameManager_SetSetting, "IsShown", "0")
+    end
 end
 
 ----------------------------------------------------------------------
@@ -1115,6 +1140,116 @@ local function layoutGroup(c)
     end
 end
 
+----------------------------------------------------------------------
+-- Raid frames: one secure group header per raid group (groupFilter 1..8), so every group keeps its own
+-- column (or row) and the header re-sorts members in combat when the roster changes. The 5 buttons of each
+-- header are created up front (out of combat) and dressed like every other unit frame; the header hands
+-- them their unit through the "unit" attribute.
+----------------------------------------------------------------------
+local RAID_GROUPS, RAID_SIZE = 8, 5
+local testing = {}
+
+-- the header changed this button's unit: follow it (events, auras, display)
+local function onRaidUnit(f, name, value)
+    if name ~= "unit" or IsSecret(value) then return end
+    if value == "" then value = nil end
+    if f.unit == value then return end
+    f.unit = value
+    bindUnitEvents(f, value)
+    for _, field in ipairs({ "auraTop", "auraBottom" }) do
+        local c = f[field]
+        if c then pcall(function() c:SetUnit(value); if value then c:UpdateAllAuras() end end) end
+    end
+    if value and f:IsShown() then updateAll(f) end
+end
+
+-- out of combat only (secure header attributes)
+local function buildRaidHeaders(c)
+    if c.headers then return end
+    c.headers = {}
+    for g = 1, RAID_GROUPS do
+        local h = CreateFrame("Frame", "ModernUI_RaidHeader" .. g, c, "SecureGroupHeaderTemplate")
+        h:SetAttribute("template", "SecureUnitButtonTemplate")
+        h:SetAttribute("showRaid", true)
+        h:SetAttribute("groupFilter", tostring(g))
+        h:SetAttribute("sortMethod", "INDEX")
+        h:SetAttribute("unitsPerColumn", RAID_SIZE)
+        h:SetAttribute("maxColumns", 1)
+        -- create all 5 buttons now: a negative starting index makes the header build them without a raid
+        h:Show()
+        h:SetAttribute("startingIndex", 1 - RAID_SIZE)
+        h:SetAttribute("startingIndex", 1)
+        h:Hide()
+        for i = 1, RAID_SIZE do
+            local f = h:GetAttribute("child" .. i)
+            if f then
+                decorate(f, nil, "raid")
+                f.isGroup = true
+                f:HookScript("OnAttributeChanged", onRaidUnit)
+                c.frames[#c.frames + 1] = f
+            end
+        end
+        c.headers[g] = h
+    end
+end
+
+-- groups side by side (columns, members top to bottom) or stacked (rows, members left to right)
+local function layoutRaid(c)
+    local cfg = ns.db.unitframes.frames.raid
+    local w, h, sp = cfg.width, cfg.height, cfg.spacing
+    local rows = cfg.horizontal
+    c:SetScale(cfg.scale * ns.db.general.scale)
+    if rows then
+        c:SetSize(RAID_SIZE * w + (RAID_SIZE - 1) * sp, RAID_GROUPS * h + (RAID_GROUPS - 1) * sp)
+    else
+        c:SetSize(RAID_GROUPS * w + (RAID_GROUPS - 1) * sp, RAID_SIZE * h + (RAID_SIZE - 1) * sp)
+    end
+    for _, f in ipairs(c.frames) do configureFrame(f, 1) end
+    for g, hd in ipairs(c.headers) do
+        hd:ClearAllPoints()
+        if rows then
+            hd:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -(g - 1) * (h + sp))
+            hd:SetAttribute("xOffset", sp)
+            hd:SetAttribute("yOffset", 0)
+            hd:SetAttribute("point", "LEFT")
+        else
+            hd:SetPoint("TOPLEFT", c, "TOPLEFT", (g - 1) * (w + sp), 0)
+            hd:SetAttribute("xOffset", 0)
+            hd:SetAttribute("yOffset", -sp)
+            hd:SetAttribute("point", "TOP")
+        end
+    end
+end
+
+-- Shown in a raid. Test mode: the first header shows you (and your party) outside of a raid.
+local function applyRaidVisibility(c, off)
+    local cfg = ns.db.unitframes.frames.raid
+    for g, hd in ipairs(c.headers) do
+        local test = testing.raid and g == 1
+        hd:SetAttribute("showSolo", test or nil)
+        hd:SetAttribute("showParty", test or nil)
+        hd:SetAttribute("showPlayer", test or nil)
+        if g == 1 then hd:SetAttribute("groupFilter", (not test) and "1" or nil) end
+        local cond = "hide"
+        if not off and (cfg.enabled or test) then cond = test and "show" or "[group:raid] show; hide" end
+        RegisterStateDriver(hd, "visibility", cond)
+    end
+end
+
+-- With raid frames on, the party frames step aside in a raid (your own group is in the raid frames).
+local function applyPartyInRaid()
+    local pc = byKey.party
+    if not pc then return end
+    if ns.db.unitframes.frames.raid.enabled then
+        RegisterStateDriver(pc, "visibility", "[group:raid] hide; show")
+        pc.raidDriver = true
+    elseif pc.raidDriver then
+        UnregisterStateDriver(pc, "visibility")
+        pc:Show()
+        pc.raidDriver = nil
+    end
+end
+
 local function setWatch(f, enabled)
     if enabled then
         if not f.watching then RegisterUnitWatch(f); f.watching = true end
@@ -1128,18 +1263,24 @@ end
 -- Test mode: party / boss frames normally need a group / an encounter. While testing, every frame of the
 -- group shows the player instead, so size, spacing, position and the text can be checked alone.
 ----------------------------------------------------------------------
-local testing = {}
-
 function UF:IsTesting(key) return testing[key] and true or false end
 
 function UF:Test(key, on)
     local c = byKey[key]
     if not (started and c and c.def) then
-        ns:Print("Test works for the party and boss frames (/mui test party).")
+        ns:Print("Test works for the party, raid and boss frames (/mui test party).")
         return
     end
     if on == nil then on = not testing[key] end
     testing[key] = on or nil
+    if key == "raid" then
+        ns:AfterCombat("uf_test_raid", function()
+            if not c.headers then return end
+            applyRaidVisibility(c)
+            ns:Print(string.format("raid frames test %s.", on and "on (group 1 shows you and your party)" or "off"))
+        end)
+        return
+    end
     ns:AfterCombat("uf_test_" .. key, function()
         local cfg = ns.db.unitframes.frames[key]
         for i, f in ipairs(c.frames) do
@@ -1169,10 +1310,11 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
     if not started then return end
     local tot = byKey.targettarget
     if tot and tot:IsShown() then updateAll(tot) end
-    local party = byKey.party
-    if party then
-        for _, f in ipairs(party.frames) do
-            if f:IsShown() then
+    -- party / raid members out of range fade
+    for _, key in ipairs({ "party", "raid" }) do
+        local c = byKey[key]
+        for _, f in ipairs(c and c.frames or {}) do
+            if f:IsShown() and f.unit then
                 local ok, inRange, checked = pcall(UnitInRange, f.unit)
                 if ok and not IsSecret(inRange) and not IsSecret(checked) then
                     f:SetAlpha((checked and not inRange) and 0.5 or 1)
@@ -1312,6 +1454,11 @@ function UF:Start()
         byKey[def.key] = c
         ns.Mover:Register("uf_" .. def.key, c, def.label)
     end
+    -- raid: the holder now (mover), the secure headers in Apply (out of combat)
+    local raid = CreateFrame("Frame", "ModernUI_raidGroup", UIParent)
+    raid.def, raid.frames = { key = "raid", label = "Raid Frames" }, {}
+    byKey.raid = raid
+    ns.Mover:Register("uf_raid", raid, raid.def.label)
     ns:On("UNIT_POWER_UPDATE", function(_, unit)
         if unit == "player" and byKey.target then updateCombo(byKey.target) end
     end)
@@ -1356,6 +1503,7 @@ function UF:Apply()
         if started then
             ns:AfterCombat("uf_off", function()
                 for _, f in ipairs(frames) do setWatch(f, false) end
+                if byKey.raid.headers then applyRaidVisibility(byKey.raid, true) end
             end)
             ns:Print("Unit frames disabled: /reload to restore the Blizzard frames.")
         end
@@ -1386,5 +1534,14 @@ function UF:Apply()
             end
             ns.Mover:Position("uf_" .. def.key)
         end
+        local raid = byKey.raid
+        buildRaidHeaders(raid)
+        for _, f in ipairs(raid.frames) do applyWheel(f) end
+        layoutRaid(raid)
+        killBlizzardFor("raid")
+        applyRaidVisibility(raid)
+        applyPartyInRaid()
+        ns.Mover:Position("uf_raid")
+        for _, f in ipairs(raid.frames) do if f:IsShown() then updateAll(f) end end
     end)
 end

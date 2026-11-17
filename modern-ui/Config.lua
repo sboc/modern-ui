@@ -660,7 +660,7 @@ local function unitCommon()
         Input("unitframes.wheel.altDown", "Alt + wheel down"),
         Header("Layout"),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
-        Text("Party and boss frames only show while you are in a group / an encounter - unlock to see where they sit."),
+        Text("Party, raid and boss frames only show while you are in a group / a raid / an encounter - unlock to see where they sit."),
     }
 end
 
@@ -717,10 +717,16 @@ local function frameOptions(key, label, opts)
     if opts.group then
         o[#o + 1] = Header("Stacking")
         o[#o + 1] = Range(b .. ".spacing", "Spacing between frames", 0, 40, 1, px)
-        o[#o + 1] = Check(b .. ".horizontal", "Lay out in a row (instead of a column)")
-        o[#o + 1] = Check(b .. ".growUp", "Stack upwards (column only)")
+        if key == "raid" then
+            o[#o + 1] = Check(b .. ".horizontal", "Groups as rows (instead of columns)")
+            o[#o + 1] = Text("Members out of range fade. While the raid frames are on, the party frames hide in a raid.")
+        else
+            o[#o + 1] = Check(b .. ".horizontal", "Lay out in a row (instead of a column)")
+            o[#o + 1] = Check(b .. ".growUp", "Stack upwards (column only)")
+        end
         o[#o + 1] = Header("Test")
-        o[#o + 1] = Button("Toggle test mode (every frame shows you)", function() ns.UnitFrames:Test(key) end)
+        o[#o + 1] = Button(key == "raid" and "Toggle test mode (group 1 shows you)" or "Toggle test mode (every frame shows you)",
+            function() ns.UnitFrames:Test(key) end)
         o[#o + 1] = Text("Or /mui test " .. key .. ". Shows the frames without a group so size, spacing and position can be checked.")
     end
     return o
@@ -767,7 +773,8 @@ local function buildPageList()
     pages[#pages + 1] = { key = "ufgeneral", title = "General", options = unitCommon }
     for _, p in ipairs({
         { "player", "Player" }, { "target", "Target" }, { "targettarget", "Target of Target" },
-        { "focus", "Focus" }, { "pet", "Pet" }, { "party", "Party", true }, { "boss", "Boss", true },
+        { "focus", "Focus" }, { "pet", "Pet" }, { "party", "Party", true }, { "raid", "Raid", true },
+        { "boss", "Boss", true },
     }) do
         pages[#pages + 1] = { key = "uf_" .. p[1], title = p[2],
             options = function() return frameOptions(p[1], p[2] .. " Frame", { group = p[3] }) end }

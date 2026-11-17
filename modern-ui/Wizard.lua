@@ -97,7 +97,7 @@ steps[3] = {
         }
         for _, p in ipairs({
             { "player", "Player" }, { "target", "Target" }, { "targettarget", "Target of Target" },
-            { "focus", "Focus" }, { "pet", "Pet" }, { "party", "Party" }, { "boss", "Boss" },
+            { "focus", "Focus" }, { "pet", "Pet" }, { "party", "Party" }, { "raid", "Raid" }, { "boss", "Boss" },
         }) do
             o[#o + 1] = O.Check("unitframes.frames." .. p[1] .. ".enabled", p[2])
         end
