@@ -4,7 +4,7 @@ local UI = ns.UI
 -- Buff reminder: an icon per buff of your class that is missing or about to run out, on yourself and (optionally)
 -- on party / raid members in range. Party and raid checks are off by default. Only for buffs you know.
 -- Other units' auras can be unreadable on this client: a unit whose auras cannot be read is skipped, never
--- reported as "missing". Hidden in combat and while dead.
+-- reported as "missing". Hidden in combat, while dead and while resting (inn, city).
 local R = ns:NewModule("buffreminder")
 ns.BuffReminder = R
 
@@ -102,7 +102,8 @@ local function refresh()
     if not frame then return end
     local c = cfg()
     local list = resolve()
-    if not c.enabled or #list == 0 or UnitAffectingCombat("player") or UnitIsDeadOrGhost("player") then
+    if not c.enabled or #list == 0 or UnitAffectingCombat("player") or UnitIsDeadOrGhost("player")
+       or (IsResting and IsResting()) then
         frame:Hide()
         return
     end
@@ -177,7 +178,8 @@ local function build()
         if elapsed >= 1 then elapsed = 0; refresh() end
     end)
     for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED",
-                         "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST" }) do
+                         "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST",
+                         "PLAYER_UPDATE_RESTING" }) do
         ns:On(e, refresh)
     end
     ns.Mover:Register("buffreminder", frame, "Buff Reminder")
