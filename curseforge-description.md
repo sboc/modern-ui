@@ -22,7 +22,7 @@ A complete, flat, modern replacement for the default WoW interface, built for **
 - **Setup wizard** on first load. Pick which parts of the UI Modern UI takes over.
 - **Full settings window** (**/mui**) and profiles. Each new character starts on its own profile; profiles can also be shared between characters.
 - **Move anything:** **/mui unlock** lets you drag frames, nudge them with the arrow keys, and right-click to reset one.
-- **Smart bags and vendor tools:** a Trash button highlights gray items below a price you set, so you can drag them out; protected items are skipped.
+- **Smart bags and vendor tools:** a Trash button highlights gray items below a price you set, then deletes them one click at a time, cheapest stack first; protected items are skipped.
 - **Food & Water macros:** keeps the "Food" and "Water" macros on the best consumable in your bags, ranked by a stat priority you choose. Raw fish and crafting reagents are ignored.
 - Optional **LibSharedMedia** support for extra fonts and textures.
 

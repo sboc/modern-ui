@@ -233,66 +233,129 @@ function V:Repair()
     end)
 end
 
--- Trash button: points out the gray items worth less than a set price (value of the whole stack), for when no
--- merchant is around - everything else in the bags is dimmed until the button is clicked again. Protected items
--- are never marked. It cannot delete them itself: DeleteCursorItem is protected on this client, so a call from an
--- addon is blocked ("Interface action failed because of an AddOn") and leaves the item on the cursor.
+-- Trash button: first click highlights the gray items whose whole stack is worth less than a set price (everything
+-- else in the bags is dimmed), then every further left-click deletes one of them, cheapest stack first. Right-click
+-- stops; it also stops by itself when nothing is left. Protected items are never marked.
+-- DeleteCursorItem only runs during a real key press or click, and only once per click: a loop that deletes several
+-- stacks in one click is blocked ("Interface action failed because of an AddOn"). So pickup and delete happen right
+-- inside OnClick, one stack each, with the bags re-read every time.
 local trashShown = false
 local trashButtons = {}
 
-local function isTrash(info, limit)
-    local poor = (Enum and Enum.ItemQuality and Enum.ItemQuality.Poor) or 0
-    if not (info and info.quality == poor) then return false end
-    if isProtected(info.itemID or itemIDFromLink(info.hyperlink)) then return false end
-    return (info.hasNoValue and 0 or sellPrice(info) * (info.stackCount or 1)) < limit
+-- whole-stack vendor value; nil while the item data is not cached yet (never guess 0 for something about to be deleted)
+local function stackValue(info)
+    if info.hasNoValue then return 0 end
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    local ok, name, _, _, _, _, _, _, _, _, _, price = pcall(getInfo, info.hyperlink or info.itemID)
+    if not (ok and name and type(price) == "number") then return end
+    return price * (info.stackCount or 1)
 end
 
-local function countTrash(limit)
-    local count = 0
+local function trashValue(info, limit)
+    local poor = (Enum and Enum.ItemQuality and Enum.ItemQuality.Poor) or 0
+    if not (info and info.quality == poor) then return end
+    if isProtected(info.itemID or itemIDFromLink(info.hyperlink)) then return end
+    local value = stackValue(info)
+    if value and value < limit then return value end
+end
+
+-- marked stacks, cheapest first (bag order breaks ties)
+local function trashList(limit)
+    local list = {}
     for bag = 0, lastBag do
         for slot = 1, numSlots(bag) do
-            if isTrash(slotInfo(bag, slot), limit) then count = count + 1 end
+            local info = slotInfo(bag, slot)
+            local value = trashValue(info, limit)
+            if value then
+                list[#list + 1] = { bag = bag, slot = slot, value = value, info = info, order = #list }
+            end
         end
     end
-    return count
+    table.sort(list, function(a, b)
+        if a.value ~= b.value then return a.value < b.value end
+        return a.order < b.order
+    end)
+    return list
 end
 
 function V:TrashShown() return trashShown end
 
 -- checked live, so the marks follow the items when the bags change
 function V:IsTrash(bag, slot)
-    return isTrash(slotInfo(bag, slot), cfg().trashMax or 0)
+    return trashValue(slotInfo(bag, slot), cfg().trashMax or 0) ~= nil
 end
 
-function V:ToggleTrash()
-    local limit = cfg().trashMax or 0
-    if not trashShown then
-        local count = countTrash(limit)
-        if count == 0 then
-            ns:Print(limit > 0 and ("No gray items worth less than " .. money(limit) .. ".")
-                     or "Set a price limit first (Config > Bag Windows > Vendor).")
-            return
-        end
-        ns:Print(string.format("%d gray item stack%s worth less than %s highlighted. Drag them out of the bags to delete them; click Trash again to stop.",
-            count, count == 1 and "" or "s", money(limit)))
-    end
-    trashShown = not trashShown
-    for _, b in ipairs(trashButtons) do b:SetSelected(trashShown) end
+local function setTrashShown(state)
+    trashShown = state
+    for _, b in ipairs(trashButtons) do b:SetSelected(state) end
     if ns.CustomBags and ns.CustomBags.RequestAll then ns.CustomBags.RequestAll() end
     if ns.BagWindows and ns.BagWindows.RequestRestyle then ns.BagWindows.RequestRestyle() end
 end
 
+local function noTrashText(limit)
+    return limit > 0 and ("No gray items worth less than " .. money(limit) .. ".")
+           or "Set a price limit first (Config > Bag Windows > Vendor)."
+end
+
+-- deletes the cheapest marked stack; must be called straight from a click
+local function deleteCheapest(limit)
+    if InCombatLockdown and InCombatLockdown() then ns:Print("Cannot delete items in combat."); return end
+    if GetCursorInfo and GetCursorInfo() then ns:Print("Drop what is on your cursor first."); return end
+    local list = trashList(limit)
+    local it
+    for _, entry in ipairs(list) do
+        if not entry.info.isLocked then it = entry; break end
+    end
+    if not it then
+        if #list == 0 then ns:Print(noTrashText(limit)); setTrashShown(false) end
+        return
+    end
+    local pickup = (C_Container and C_Container.PickupContainerItem) or PickupContainerItem
+    local id = it.info.itemID or itemIDFromLink(it.info.hyperlink)
+    pcall(pickup, it.bag, it.slot)
+    local kind, cursorID = GetCursorInfo()
+    if kind ~= "item" or cursorID ~= id then ClearCursor(); return end
+    DeleteCursorItem()
+    kind, cursorID = GetCursorInfo()
+    if kind == "item" and cursorID == id then
+        ClearCursor()
+        ns:Print("The client blocked deleting the item.")
+        return
+    end
+    local left = #list - 1
+    ns:Print(string.format("Deleted %s%s (%s). %s", it.info.hyperlink or itemName(nil, id),
+        (it.info.stackCount or 1) > 1 and (" x" .. it.info.stackCount) or "", money(it.value),
+        left > 0 and string.format("%d left.", left) or "None left."))
+    if left == 0 then setTrashShown(false) end
+end
+
+function V:TrashClick(button)
+    local limit = cfg().trashMax or 0
+    if button == "RightButton" then
+        if trashShown then setTrashShown(false) end
+        return
+    end
+    if trashShown then return deleteCheapest(limit) end
+    local count = #trashList(limit)
+    if count == 0 then ns:Print(noTrashText(limit)); return end
+    ns:Print(string.format("%d gray item stack%s worth less than %s highlighted. Click Trash again to delete the cheapest one (one per click); right-click to stop.",
+        count, count == 1 and "" or "s", money(limit)))
+    setTrashShown(true)
+end
+
 -- shared by the grouped bag window and the Blizzard backpack
 function V:CreateTrashButton(parent, w, h)
-    local b = ns.UI.Button(parent, "Trash", w or 46, h or 20, function() V:ToggleTrash() end)
+    local b = ns.UI.Button(parent, "Trash", w or 46, h or 20, function(_, button) V:TrashClick(button) end)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     trashButtons[#trashButtons + 1] = b
     b:SetSelected(trashShown)
     b:HookScript("OnEnter", function(self)
         local limit = ns.db and cfg().trashMax or 0
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Highlight gray items", 1, 1, 1)
-        GameTooltip:AddLine("Worth less than " .. money(limit) .. " per stack. Drag them out to delete.", 0.7, 0.7, 0.7)
-        GameTooltip:AddLine("Change the limit in Config > Bag Windows.", 0.7, 0.7, 0.7)
+        GameTooltip:SetText("Delete gray items", 1, 1, 1)
+        GameTooltip:AddLine("Worth less than " .. money(limit) .. " per stack.", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Click: highlight them, then each click deletes the cheapest stack.", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Right-click: stop. Change the limit in Config > Bag Windows.", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
     b:HookScript("OnLeave", function() GameTooltip:Hide() end)
