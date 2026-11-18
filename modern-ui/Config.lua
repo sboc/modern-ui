@@ -8,7 +8,7 @@ ns.Config = Config
 ----------------------------------------------------------------------
 -- Option helpers
 ----------------------------------------------------------------------
-local function pct(v) return string.format("%d%%", math.floor(v * 100 + 0.5)) end
+local pct = UI.pct
 local function px(v) return string.format("%d px", v) end
 local function x2(v) return string.format("%.2f", v) end
 
@@ -287,7 +287,7 @@ local function bagWindowOptions()
             local g, sv = math.floor(v / 10000), math.floor(v / 100) % 100
             return (g > 0 and (g .. "g ") or "") .. (sv > 0 and (sv .. "s") or "")
         end),
-        Text("The Trash button in your bags deletes gray items whose whole stack is worth less than this (items with no vendor value count as 0). Protected items are skipped. It asks before deleting."),
+        Text("The Trash button in your bags highlights gray items whose whole stack is worth less than this (items with no vendor value count as 0); each further click deletes one of them, cheapest stack first. Right-click stops. Protected items are skipped."),
         Button("Clear protected items", function() if ns.Vendor then ns.Vendor:ClearProtected(); ns:Print("Cleared protected items.") end end),
     }
 end

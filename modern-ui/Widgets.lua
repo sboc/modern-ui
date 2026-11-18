@@ -142,13 +142,29 @@ end
 ----------------------------------------------------------------------
 -- Slider
 ----------------------------------------------------------------------
+-- Percent display for 0..1 values. Sliders using it take typed numbers as percent (50 = 0.5).
+function UI.pct(v) return string.format("%d%%", math.floor(v * 100 + 0.5)) end
+
 function UI.Slider(parent, label, min, max, step, get, set, fmt)
     fmt = fmt or function(v) return tostring(v) end
+    local typedScale = (fmt == UI.pct) and 100 or 1
     local f = CreateFrame("Frame", nil, parent)
     f:SetHeight(40)
-    f.valueText = UI.Text(f, "", "GameFontNormal", "RIGHT")
-    f.valueText:SetPoint("TOPRIGHT", 0, 0)
-    f.valueText:SetWidth(64)
+    -- the value doubles as a number field: click it, type, Enter (Escape cancels)
+    local edit = CreateFrame("EditBox", nil, f)
+    edit:SetFontObject("GameFontNormal")
+    local _, size, flags = edit:GetFont()
+    pcall(edit.SetFont, edit, ns.DEFAULT_FONT, (size or 12) + 2, flags or "")
+    edit:SetJustifyH("RIGHT")
+    edit:SetAutoFocus(false)
+    edit:SetSize(72, 18)
+    edit:SetPoint("TOPRIGHT", 0, 2)
+    edit:SetTextInsets(4, 4, 0, 0)
+    edit.bg = edit:CreateTexture(nil, "BACKGROUND")
+    edit.bg:SetAllPoints()
+    edit.bg:SetColorTexture(unpack(C.panel))
+    edit.bg:Hide()
+    f.valueText = edit
     -- the label never runs under the value: it is cut short instead
     f.text = UI.Text(f, label)
     f.text:SetPoint("TOPLEFT", 0, 0)
@@ -178,22 +194,50 @@ function UI.Slider(parent, label, min, max, step, get, set, fmt)
         return tonumber(string.format("%.4f", v))
     end
 
+    local function current()
+        local v = get()
+        return type(v) == "number" and v or min
+    end
+    local function showValue(v)
+        if not edit:HasFocus() then edit:SetText(fmt(v)) end
+    end
+
     s:SetScript("OnValueChanged", function(_, v)
         if f.updating then return end
         v = snap(v)
-        f.valueText:SetText(fmt(v))
+        showValue(v)
         if v ~= get() then set(v) end
     end)
     -- no mouse wheel on sliders: they would swallow the wheel and block page scrolling
 
     function f:Refresh()
-        local v = get()
-        if type(v) ~= "number" then v = min end
+        local v = current()
         f.updating = true
         s:SetValue(v)
         f.updating = false
-        f.valueText:SetText(fmt(v))
+        showValue(v)
     end
+
+    edit:SetScript("OnEditFocusGained", function(self)
+        self.bg:Show()
+        self:SetText(tostring(tonumber(string.format("%.4f", current() * typedScale))))
+        self:HighlightText()
+    end)
+    edit:SetScript("OnEditFocusLost", function(self)
+        self.bg:Hide()
+        self:HighlightText(0, 0)
+        local n = not self.cancelled and tonumber((strtrim(self:GetText() or ""):gsub(",", ".")))
+        self.cancelled = nil
+        if n then
+            local v = snap(math.max(min, math.min(max, n / typedScale)))
+            if v ~= get() then set(v) end
+        end
+        f:Refresh()
+    end)
+    edit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    edit:SetScript("OnEscapePressed", function(self) self.cancelled = true; self:ClearFocus() end)
+    edit:SetScript("OnEnter", function(self) if not self:HasFocus() then self.bg:Show() end end)
+    edit:SetScript("OnLeave", function(self) if not self:HasFocus() then self.bg:Hide() end end)
     f:Refresh()
     return f
 end
