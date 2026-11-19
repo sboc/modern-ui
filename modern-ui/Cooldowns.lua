@@ -6,11 +6,13 @@ local UI = ns.UI
 -- saved C methods to holders we own (so the Mover can place them - by default
 -- Essential sits between the player and target frames), scaled, and their
 -- icons are re-skinned: square, cropped, thin border, no ring art.
+-- fit: widest the viewer may get (layout units at scale 1); a longer row of
+-- icons is scaled down below its scale setting so it still fits there.
 local CD = ns:NewModule("cooldowns")
 ns.Cooldowns = CD
 
 local VIEWERS = {
-    { key = "essential", global = "EssentialCooldownViewer", label = "Cooldowns: Essential", w = 220, h = 52 },
+    { key = "essential", global = "EssentialCooldownViewer", label = "Cooldowns: Essential", w = 220, h = 52, fit = 212 },   -- the 220 gap between player and target, 4 px clear of each
     { key = "utility", global = "UtilityCooldownViewer", label = "Cooldowns: Utility", w = 220, h = 34 },
     { key = "buffs", global = "BuffIconCooldownViewer", label = "Cooldowns: Buffs", w = 220, h = 34 },
     { key = "bars", global = "BuffBarCooldownViewer", label = "Cooldowns: Buff bars", w = 255, h = 90 },
@@ -104,6 +106,23 @@ local function anchored(viewer, holder)
     return ok and rel == holder
 end
 
+-- the viewer's scale: its setting, lowered when the icons would be wider than v.fit
+local function viewerScale(v, viewer)
+    local s = cfg().viewers[v.key].scale
+    if v.fit then
+        pcall(function()
+            local w = viewer:GetWidth()
+            if w > 0 and w * s > v.fit then s = v.fit / w end
+        end)
+    end
+    return s * ns.db.general.scale
+end
+
+local function scaled(v, viewer)
+    local ok, cur = pcall(viewer.GetScale, viewer)
+    return ok and math.abs(cur - viewerScale(v, viewer)) < 0.001
+end
+
 local function placeViewer(v)
     local viewer, holder = _G[v.global], holders[v.key]
     local vc = cfg().viewers[v.key]
@@ -111,7 +130,7 @@ local function placeViewer(v)
     viewer.molPlacing = true
     pcall(function()
         holder:SetScale(vc.scale * ns.db.general.scale)
-        ns.SetScale(viewer, vc.scale * ns.db.general.scale)
+        ns.SetScale(viewer, viewerScale(v, viewer))
         viewer:SetAlpha(vc.alpha)
         ns.ClearPoints(viewer)
         ns.SetPoint(viewer, "CENTER", holder, "CENTER", 0, 0)
@@ -126,12 +145,14 @@ local function placeAll()
 end
 
 -- Blizzard moves its viewers around (Edit Mode applies, layout refreshes,
--- spec changes): every time, check that ours is still where we put it.
+-- spec changes, icons added): every time, check that ours is still where we
+-- put it and at the scale that fits its icons.
 local function enforce()
     if not cfg().enabled then return end
     for _, v in ipairs(VIEWERS) do
         local viewer, holder = _G[v.global], holders[v.key]
-        if viewer and holder and cfg().viewers[v.key].enabled and not anchored(viewer, holder) then
+        if viewer and holder and cfg().viewers[v.key].enabled
+            and not (anchored(viewer, holder) and scaled(v, viewer)) then
             placeViewer(v)
         end
     end
