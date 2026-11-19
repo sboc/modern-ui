@@ -611,24 +611,56 @@ end
 ----------------------------------------------------------------------
 -- Taking over / releasing Blizzard's nameplate frame
 ----------------------------------------------------------------------
+-- Park one of Blizzard's plate widgets in the hidden offscreen frame: a hidden parent never renders,
+-- whatever alpha or fade animation Blizzard's code puts on the widget. Undone by unpark.
+local function park(widget, uf)
+    parked[widget] = uf
+    if widget:GetParent() ~= offscreen then widget:SetParent(offscreen) end
+end
+
+local function unpark(widget, uf)
+    if parked[widget] ~= uf then return end
+    parked[widget] = nil
+    if widget:GetParent() == offscreen then widget:SetParent(uf) end
+end
+
+local function blizzCastBars(uf)
+    local bars = {}
+    for _, key in ipairs({ "castBar", "CastBar" }) do
+        local cb = uf[key]
+        if type(cb) == "table" and cb.SetAlpha and not (cb.IsForbidden and cb:IsForbidden()) then bars[#bars + 1] = cb end
+    end
+    return bars
+end
+
+-- Each step is guarded on its own: one refused call must not leave the others undone.
 local function hideBlizzard(plate)
     local uf = plate.UnitFrame
     if not uf then return end
     owned[uf] = true
+    pcall(uf.SetAlpha, uf, 0)
+    if not hookedAlpha[uf] then
+        hookedAlpha[uf] = true
+        local locked = false
+        pcall(hooksecurefunc, uf, "SetAlpha", function(self, a)
+            if locked or not owned[self] or a == 0 then return end
+            locked = true
+            self:SetAlpha(0)
+            locked = false
+        end)
+    end
+    -- its aura buttons are mouse-enabled templates: park them so they cannot trap clicks / tooltips
     pcall(function()
-        uf:SetAlpha(0)
-        -- its aura buttons are mouse-enabled templates: park them so they cannot trap clicks / tooltips
         local auras = uf.AurasFrame
         if auras and not auras:IsForbidden() then
             -- Blizzard's aura row can ignore its parent's alpha: make sure it follows it, and fade it too
             if auras.SetIgnoreParentAlpha then pcall(auras.SetIgnoreParentAlpha, auras, false) end
             pcall(auras.SetAlpha, auras, 0)
-            if auras:GetParent() ~= offscreen then
-                parked[auras] = uf
-                auras:SetParent(offscreen)
-            end
+            park(auras, uf)
         end
-        -- Blizzard's own target outline ignores the UnitFrame's alpha: keep it hidden on enemy plates
+    end)
+    -- Blizzard's own target outline ignores the UnitFrame's alpha: keep it hidden on enemy plates
+    pcall(function()
         local sel = uf.selectionHighlight
         if type(sel) == "table" and sel.SetAlpha then
             sel:SetAlpha(0)
@@ -640,58 +672,47 @@ local function hideBlizzard(plate)
                 pcall(hooksecurefunc, sel, "SetShown", function(self, shown) if shown then again(self) end end)
             end
         end
-        -- Blizzard's cast bar is shown / faded by its own code on every cast and can ignore the UnitFrame's alpha:
-        -- its (taller) dark background then shows behind our cast bar. Pin it to alpha 0 while we own the plate.
-        for _, key in ipairs({ "castBar", "CastBar" }) do
-            local cb = uf[key]
-            if type(cb) == "table" and cb.SetAlpha and not (cb.IsForbidden and cb:IsForbidden()) then
-                if cb.SetIgnoreParentAlpha then pcall(cb.SetIgnoreParentAlpha, cb, false) end
-                cb:SetAlpha(0)
-                if not hookedAlpha[cb] then
-                    hookedAlpha[cb] = true
-                    local busy = false
-                    local function zero(self)
-                        if busy or not owned[uf] then return end
-                        busy = true
-                        self:SetAlpha(0)
-                        busy = false
-                    end
-                    pcall(hooksecurefunc, cb, "SetAlpha", function(self, a) if a ~= 0 then zero(self) end end)
-                    pcall(hooksecurefunc, cb, "Show", zero)
-                    pcall(hooksecurefunc, cb, "SetShown", function(self, shown) if shown then zero(self) end end)
-                end
-            end
-        end
-        if not hookedAlpha[uf] then
-            hookedAlpha[uf] = true
-            local locked = false
-            hooksecurefunc(uf, "SetAlpha", function(self, a)
-                if locked or not owned[self] or a == 0 then return end
-                locked = true
-                self:SetAlpha(0)
-                locked = false
-            end)
-        end
     end)
+    -- Blizzard's cast bar is shown / faded by its own code on every cast and can ignore the UnitFrame's alpha:
+    -- its (taller) dark background then shows behind our cast bar. Its fade / flash animations change its alpha
+    -- without a SetAlpha call, so it is parked in the hidden frame; the alpha pin stays as a fallback in case
+    -- the client refuses the reparent.
+    for _, cb in ipairs(blizzCastBars(uf)) do
+        pcall(park, cb, uf)
+        pcall(function()
+            if cb.SetIgnoreParentAlpha then pcall(cb.SetIgnoreParentAlpha, cb, false) end
+            cb:SetAlpha(0)
+            if not hookedAlpha[cb] then
+                hookedAlpha[cb] = true
+                local busy = false
+                local function zero(self)
+                    if busy or not owned[uf] then return end
+                    busy = true
+                    self:SetAlpha(0)
+                    busy = false
+                end
+                pcall(hooksecurefunc, cb, "SetAlpha", function(self, a) if a ~= 0 then zero(self) end end)
+                pcall(hooksecurefunc, cb, "Show", zero)
+                pcall(hooksecurefunc, cb, "SetShown", function(self, shown) if shown then zero(self) end end)
+            end
+        end)
+    end
 end
 
 local function reclaimBlizzard(plate)
     local uf = plate and plate.UnitFrame
     if not uf or not owned[uf] then return end
     owned[uf] = nil
-    pcall(function()
-        local auras = uf.AurasFrame
-        if auras and parked[auras] == uf then
-            parked[auras] = nil
-            pcall(auras.SetAlpha, auras, 1)
-            if auras:GetParent() == offscreen then auras:SetParent(uf) end
-        end
-        for _, key in ipairs({ "castBar", "CastBar" }) do
-            local cb = uf[key]
-            if type(cb) == "table" and cb.SetAlpha and not (cb.IsForbidden and cb:IsForbidden()) then cb:SetAlpha(1) end
-        end
-        uf:SetAlpha(1)
-    end)
+    local auras = uf.AurasFrame
+    if auras then
+        pcall(unpark, auras, uf)
+        pcall(auras.SetAlpha, auras, 1)
+    end
+    for _, cb in ipairs(blizzCastBars(uf)) do
+        pcall(unpark, cb, uf)
+        pcall(cb.SetAlpha, cb, 1)
+    end
+    pcall(uf.SetAlpha, uf, 1)
 end
 
 -- RegisterUnitEvent filters on at most two unit tokens, so one shared frame registered for
