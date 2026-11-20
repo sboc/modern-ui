@@ -558,18 +558,31 @@ local function totemOptions()
 end
 
 local function buffReminderOptions()
-    return {
+    local o = {
         Header("Buff Reminder"),
-        Check("buffreminder.enabled", "Remind me of missing buffs (druids: Mark of the Wild, Thorns)"),
-        Text("Shows an icon while a buff is missing or about to run out. Hidden in combat, while dead and when the buff is not known."),
+        Check("buffreminder.enabled", "Remind me of missing class buffs"),
+        Text("Shows an icon while a buff is missing or about to run out. Hidden in combat, while dead, while resting and when the buff is not trained."),
         Check("buffreminder.self", "Check myself"),
         Check("buffreminder.party", "Check party members in range"),
         Check("buffreminder.raid", "Check raid members in range"),
+        Text("Armors, auras, aspects and blessings are only checked on you."),
         Range("buffreminder.threshold", "Warn when less than this is left", 0, 600, 10, function(v) return v .. " s" end),
         Range("buffreminder.size", "Icon size", 20, 64, 1, px),
         Range("buffreminder.scale", "Scale", 0.5, 2, 0.05, x2),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
     }
+    local buffs = ns.BuffReminder:ClassBuffs()
+    if #buffs > 0 then
+        o[#o + 1] = Header("Buffs")
+        for _, e in ipairs(buffs) do
+            o[#o + 1] = { type = "check", label = e.title, apply = "buffreminder",
+                get = function() return not ns.db.buffreminder.off[e.key] end,
+                set = function(v) ns.db.buffreminder.off[e.key] = (not v) or nil end }
+        end
+    else
+        o[#o + 1] = Text("Your class has no buffs to remind of.")
+    end
+    return o
 end
 
 local function miscOptions()

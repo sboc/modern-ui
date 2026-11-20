@@ -2,23 +2,55 @@ local ADDON, ns = ...
 local UI = ns.UI
 
 -- Buff reminder: an icon per buff of your class that is missing or about to run out, on yourself and (optionally)
--- on party / raid members in range. Party and raid checks are off by default. Only for buffs you know.
--- Other units' auras can be unreadable on this client: a unit whose auras cannot be read is skipped, never
--- reported as "missing". Hidden in combat, while dead and while resting (inn, city).
+-- on party / raid members in range. Party and raid checks are off by default. Only for buffs you know; each one
+-- can be switched off in the options. Other units' auras can be unreadable on this client: a unit whose auras
+-- cannot be read is skipped, never reported as "missing". Hidden in combat, while dead and while resting (inn, city).
 local R = ns:NewModule("buffreminder")
 ns.BuffReminder = R
 
--- spells[1] is the buff you cast, the others also count as having it (Gift of the Wild covers Mark of the Wild).
--- Names come from the spell ids so they follow the client language.
+-- One entry per reminder. spells: the buffs you can cast for it, first known one is shown (so Demon Armor wins over
+-- Demon Skin once trained); any of them counts as present. also: other buffs that count too (Gift of the Wild covers
+-- Mark of the Wild). selfOnly: never checked on group members (armors, auras, aspects). label: shown instead of the
+-- spell name when the spells are a choice (any aura does). The first spell id is the key for the on/off setting.
+-- Names come from the spell ids so they follow the client language; fallback only for the first spell.
+-- Not here: weapon imbues and poisons (weapon enchants, see the weapon enchant icons) and Battle Shout (2 minutes,
+-- cast in combat, so it would show the whole time out of combat).
 local BUFFS = {
     DRUID = {
-        { cast = 1126, also = { 21849 }, fallback = "Mark of the Wild" },
-        { cast = 467,                    fallback = "Thorns" },
+        { spells = { 1126 }, also = { 21849 }, fallback = "Mark of the Wild" },
+        { spells = { 467 }, fallback = "Thorns" },
+        { spells = { 16864 }, selfOnly = true, fallback = "Omen of Clarity" },
+    },
+    PRIEST = {
+        { spells = { 1243 }, also = { 21562 }, fallback = "Power Word: Fortitude" },
+        { spells = { 14752 }, also = { 27681 }, fallback = "Divine Spirit" },
+        { spells = { 976 }, also = { 27683 }, fallback = "Shadow Protection" },
+        { spells = { 588 }, selfOnly = true, fallback = "Inner Fire" },
+    },
+    MAGE = {
+        { spells = { 1459 }, also = { 23028 }, fallback = "Arcane Intellect" },
+        { spells = { 6117, 7302, 168 }, selfOnly = true, label = "Armor", fallback = "Frost Armor" },
+    },
+    WARLOCK = {
+        { spells = { 706, 687 }, selfOnly = true, fallback = "Demon Skin" },
+    },
+    PALADIN = {
+        { spells = { 465, 7294, 19746, 19876, 19888, 19891, 20218 }, selfOnly = true, label = "Aura", fallback = "Devotion Aura" },
+        { spells = { 19740, 19742, 20217, 1038, 19977, 20911 }, also = { 25782, 25894, 25898, 25895, 25890, 25899 },
+          selfOnly = true, label = "Blessing", fallback = "Blessing of Might" },
+    },
+    HUNTER = {
+        { spells = { 13165, 13163, 5118, 13159, 20043, 13161 }, selfOnly = true, label = "Aspect", fallback = "Aspect of the Hawk" },
+        { spells = { 19506 }, selfOnly = true, fallback = "Trueshot Aura" },
+    },
+    SHAMAN = {
+        { spells = { 324 }, selfOnly = true, fallback = "Lightning Shield" },
     },
 }
 
 local frame, rows
-local entries     -- the buffs of this class, resolved: { name = {...}, castName, icon }
+local entries     -- the buffs of this class, resolved: { key, spells, names = {...}, selfOnly, label, title }
+local NONE = {}
 local elapsed = 0
 
 local function cfg() return ns.db.buffreminder end
@@ -45,16 +77,38 @@ local function resolve()
     entries = {}
     local _, class = UnitClass("player")
     for _, b in ipairs(BUFFS[class] or {}) do
-        local names = { [spellName(b.cast, b.fallback)] = true }
-        for _, id in ipairs(b.also or {}) do names[spellName(id, "")] = true end
-        entries[#entries + 1] = { id = b.cast, name = spellName(b.cast, b.fallback), names = names, icon = spellTexture(b.cast) }
+        local names, spells = {}, {}
+        for i, id in ipairs(b.spells) do
+            local n = spellName(id, i == 1 and b.fallback or nil)
+            if n then names[n] = true; spells[#spells + 1] = n end
+        end
+        for _, id in ipairs(b.also or {}) do
+            local n = spellName(id)
+            if n then names[n] = true end
+        end
+        entries[#entries + 1] = { key = b.spells[1], spells = b.spells, names = names, selfOnly = b.selfOnly,
+                                  label = b.label, title = b.label or table.concat(spells, " / ") }
     end
     return entries
 end
 
--- seconds left of the buff on the unit: 0 = missing, math.huge = no expiry, nil = auras of the unit unreadable
+-- the spell of the entry you would cast: first known one, nil = none trained
+local function knownSpell(e)
+    for _, id in ipairs(e.spells) do
+        if known(id) then return id end
+    end
+end
+
+-- the buffs of your class for the options: { key, title }; the setting is buffreminder.off[key]
+function R:ClassBuffs()
+    return resolve()
+end
+
+-- seconds left of the buff on the unit: 0 = missing, math.huge = no expiry, nil = auras of the unit unreadable.
+-- A group member without any aura counts as unreadable; your own auras are readable out of combat (the only time
+-- this runs), so no aura at all on you means missing.
 local function timeLeft(unit, e)
-    local now, readable, best = GetTime(), false, 0
+    local now, readable, best = GetTime(), unit == "player", 0
     for i = 1, 40 do
         local a = ns.GetAuraAt(unit, i, "HELPFUL", true)
         if not a then break end
@@ -111,21 +165,22 @@ local function refresh()
     local shown = 0
     for i, e in ipairs(list) do
         local text
-        if known(e.id) then
+        local id = not (c.off and c.off[e.key]) and knownSpell(e)
+        if id then
             local own
             if c.self then
                 local left = timeLeft("player", e)
                 if left and left < math.max(c.threshold, 1) then own = left == 0 and "missing" or fmt(left) end
             end
             local missing = 0
-            for _, u in ipairs(units) do
+            for _, u in ipairs(e.selfOnly and NONE or units) do
                 if inReach(u) then
                     local left = timeLeft(u, e)
                     if left and left < math.max(c.threshold, 1) then missing = missing + 1 end
                 end
             end
             if own or missing > 0 then
-                text = e.name
+                text = e.label or spellName(id, e.title)
                 if own then text = text .. ": " .. own end
                 if missing > 0 then text = text .. (own and "  " or ": ") .. missing .. " in group" end
             end
@@ -135,7 +190,7 @@ local function refresh()
             shown = shown + 1
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(shown - 1) * (c.size + 4))
-            row.icon:SetTexture(e.icon)
+            row.icon:SetTexture(spellTexture(id))
             row.text:SetText(text)
             row:Show()
         else

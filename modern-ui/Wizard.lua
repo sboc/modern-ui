@@ -167,7 +167,7 @@ steps[6] = {
             O.Check("vendor.autoRepair", "Automatically repair when a repair merchant opens"),
             O.Header("Buffs & consumables"),
             O.Check("consumables.enabled", "Keep the Food and Water macros on the best item in your bags"),
-            O.Check("buffreminder.enabled", "Remind me of missing buffs (druids: Mark of the Wild, Thorns)"),
+            O.Check("buffreminder.enabled", "Remind me of missing class buffs (Arcane Intellect, Demon Skin, ...)"),
             O.Check("weaponenchants.enabled", "Show temporary weapon enchants with their time left"),
             O.Check("totems.enabled", "Totem bar (shamans)"),
             O.Header("Other"),
