@@ -282,6 +282,12 @@ end
 local function updateHealth(f)
     local unit = f.unit
     if not unit then return end
+    -- Blizzard keeps a corpse's plate (fading out) for a moment before NAME_PLATE_UNIT_REMOVED; our frame
+    -- does not follow that fade, so a dead enemy's plate is hidden here (shown again if it is resurrected)
+    if not f.friendly then
+        local ok, dead = pcall(UnitIsDead, unit)
+        if ok and not secret(dead) then f:SetShown(not dead) end
+    end
     pcall(function()
         f.health:SetMinMaxValues(0, UnitHealthMax(unit))
         setBar(f.health, UnitHealth(unit))
