@@ -562,7 +562,7 @@ local function buffReminderOptions()
     local o = {
         Header("Buff Reminder"),
         Check("buffreminder.enabled", "Remind me of missing class buffs"),
-        Text("Shows an icon while a buff is missing or about to run out. Hidden in combat, while dead, while resting and when the buff is not trained."),
+        Text("Shows an icon while a buff is missing or about to run out. Hidden in combat, while dead, while resting, while fishing and when the buff is not trained."),
         Check("buffreminder.self", "Check myself"),
         Check("buffreminder.party", "Check party members in range"),
         Check("buffreminder.raid", "Check raid members in range"),

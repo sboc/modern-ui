@@ -4,7 +4,8 @@ local UI = ns.UI
 -- Buff reminder: an icon per buff of your class that is missing or about to run out, on yourself and (optionally)
 -- on party / raid members in range. Party and raid checks are off by default. Only for buffs you know; each one
 -- can be switched off in the options. Other units' auras can be unreadable on this client: a unit whose auras
--- cannot be read is skipped, never reported as "missing". Hidden in combat, while dead and while resting (inn, city).
+-- cannot be read is skipped, never reported as "missing". Hidden in combat, while dead, while resting (inn, city)
+-- and while fishing (plus a few seconds after each cast, so it does not flash up between casts).
 -- One more row for food: you are not Well Fed while the Food macro's pick gives a buff (ns.Consumables.buffFood).
 -- Clicking a row hides it for buffreminder.snooze minutes, or until it has nothing left to remind of (the buff is
 -- back, you are Well Fed), whichever comes first. Not saved: a /reload shows it again.
@@ -173,6 +174,18 @@ local function foodRow(c)
            getIcon and getIcon(food.itemID)
 end
 
+-- fishing: the channel's name (every rank is called "Fishing"); the reminder stays away FISHING_GRACE seconds
+-- after a cast ends, the time it takes to loot and cast again
+local FISHING_GRACE = 10
+local fishedAt
+local function fishing()
+    local name = UnitChannelInfo and UnitChannelInfo("player")
+    if type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name == spellName(7620, "Fishing") then
+        fishedAt = GetTime()
+    end
+    return fishedAt ~= nil and GetTime() - fishedAt < FISHING_GRACE
+end
+
 -- true while a clicked-away row stays hidden; the snooze ends early once the row has nothing to show
 local function snoozed(key, text)
     local untilTime = dismissed[key]
@@ -186,7 +199,7 @@ local function refresh()
     local c = cfg()
     local list = resolve()
     if not c.enabled or UnitAffectingCombat("player") or UnitIsDeadOrGhost("player")
-       or (IsResting and IsResting()) then
+       or (IsResting and IsResting()) or fishing() then
         frame:Hide()
         return
     end
@@ -294,6 +307,7 @@ local function build()
                          "PLAYER_UPDATE_RESTING" }) do
         ns:On(e, refresh)
     end
+    ns:On("UNIT_SPELLCAST_CHANNEL_START", function(_, unit) if unit == "player" then refresh() end end)
     ns.Mover:Register("buffreminder", frame, "Buff Reminder")
 end
 
