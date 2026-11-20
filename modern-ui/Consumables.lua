@@ -225,7 +225,7 @@ local function classify(itemID, link)
         local lo, hi = text:match("restores (%d+) to (%d+) health")
         local amt = lo and (tonumber(lo) + tonumber(hi)) / 2 or number(text, "restores (%d+) health") or 0
         if amt <= 0 or text:find(" over ", 1, true) then return end   -- not an instant heal
-        return { healthpot = true, healthAmt = amt, manaAmt = number(text, "restores %d+ to (%d+) mana")
+        return { healthpot = true, healthAmt = amt, xp = 0, manaAmt = number(text, "restores %d+ to (%d+) mana")
                  or number(text, "restores (%d+) mana") or 0, cats = {} }
     end
 
@@ -648,8 +648,9 @@ function K:Debug(verbose)
                 else
                     local cats = {}
                     for key, amt in pairs(info.cats) do cats[#cats + 1] = key .. "=" .. amt end
-                    ns:Print(link, string.format("hp %d, mana %d, xp %d%%, minLevel %d, stats: %s",
-                        info.healthAmt, info.manaAmt, info.xp or 0, itemMinLevel(link) or -1, #cats > 0 and table.concat(cats, ",") or "NONE"))
+                    ns:Print(link, string.format("hp %d, mana %d, xp %d%%, minLevel %d, stats: %s%s",
+                        info.healthAmt, info.manaAmt, info.xp or 0, itemMinLevel(link) or -1, #cats > 0 and table.concat(cats, ",") or "NONE",
+                        isCraftingReagent(link) and " - skipped: crafting reagent" or ""))
                     ns:Print("   ", textCache[id] or "?")
                 end
             end
