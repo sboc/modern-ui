@@ -570,6 +570,7 @@ local function buffReminderOptions()
         Check("buffreminder.food", "Remind me to eat when I am not Well Fed and have buff food"),
         Text("Buff food is what the Food macro picks (see Food, Water & Potions), when it gives a stat or, below max level, an experience bonus."),
         Range("buffreminder.threshold", "Warn when less than this is left", 0, 600, 10, function(v) return v .. " s" end),
+        Range("buffreminder.snooze", "Clicked-away reminders come back after", 1, 60, 1, function(v) return v .. " min" end),
         Range("buffreminder.size", "Icon size", 20, 64, 1, px),
         Range("buffreminder.scale", "Scale", 0.5, 2, 0.05, x2),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),

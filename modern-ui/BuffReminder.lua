@@ -6,6 +6,8 @@ local UI = ns.UI
 -- can be switched off in the options. Other units' auras can be unreadable on this client: a unit whose auras
 -- cannot be read is skipped, never reported as "missing". Hidden in combat, while dead and while resting (inn, city).
 -- One more row for food: you are not Well Fed while the Food macro's pick gives a buff (ns.Consumables.buffFood).
+-- Clicking a row hides it for buffreminder.snooze minutes, or until it has nothing left to remind of (the buff is
+-- back, you are Well Fed), whichever comes first. Not saved: a /reload shows it again.
 local R = ns:NewModule("buffreminder")
 ns.BuffReminder = R
 
@@ -52,6 +54,7 @@ local BUFFS = {
 local frame, rows
 local entries     -- the buffs of this class, resolved: { key, spells, names = {...}, selfOnly, label, title }
 local NONE = {}
+local dismissed = {}   -- entry key ("food" for the food row) -> GetTime() when the clicked-away row may show again
 local elapsed = 0
 
 local function cfg() return ns.db.buffreminder end
@@ -170,6 +173,14 @@ local function foodRow(c)
            getIcon and getIcon(food.itemID)
 end
 
+-- true while a clicked-away row stays hidden; the snooze ends early once the row has nothing to show
+local function snoozed(key, text)
+    local untilTime = dismissed[key]
+    if not untilTime then return false end
+    if not text or GetTime() >= untilTime then dismissed[key] = nil return false end
+    return true
+end
+
 local function refresh()
     if not frame then return end
     local c = cfg()
@@ -203,6 +214,7 @@ local function refresh()
                 if missing > 0 then text = text .. (own and "  " or ": ") .. missing .. " in group" end
             end
         end
+        if snoozed(e.key, text) then text = nil end
         local row = rows[i]
         if text then
             shown = shown + 1
@@ -217,6 +229,7 @@ local function refresh()
     end
     local row = rows[#list + 1]
     local text, icon = foodRow(c)
+    if snoozed("food", text) then text = nil end
     if text then
         shown = shown + 1
         row:ClearAllPoints()
@@ -245,8 +258,22 @@ local function build()
     frame = CreateFrame("Frame", "ModernUIBuffReminder", UIParent)
     frame:SetFrameStrata("HIGH")
     rows = {}
-    for i = 1, #resolve() + 1 do   -- + the food row
+    local list = resolve()
+    for i = 1, #list + 1 do   -- + the food row
         local row = CreateFrame("Frame", nil, frame)
+        row.key = list[i] and list[i].key or "food"
+        row:EnableMouse(true)
+        row:SetScript("OnMouseUp", function(self)
+            dismissed[self.key] = GetTime() + (cfg().snooze or 5) * 60
+            GameTooltip:Hide()
+            refresh()
+        end)
+        row:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(string.format("Click to hide this reminder for %d min", cfg().snooze or 5), 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetPoint("LEFT")
         row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
