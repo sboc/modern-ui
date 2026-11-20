@@ -10,7 +10,7 @@ A complete, flat, modern replacement for the default WoW interface, built for **
 - **Action bars:** centered at the bottom, with pet and stance bars below bar 1. Bars 3 and 4 sit at the sides. Blizzard's own buttons are re-skinned, so bindings, flyouts, cooldowns and drag-and-drop keep working.
 - **Unit frames:** player and target, with combo points on the target frame, and a player cast bar.
 - **Cooldown manager:** Blizzard's viewers, positioned and skinned.
-- **Damage meter:** your own window, left of the bars, drawn from Blizzard's damage meter data.
+- **Damage meter:** your own window, left of the bars, drawn from Blizzard's damage meter data. Click a player to see which skills did the damage (or healing).
 - **Minimap:** square or round, to the right of the bars.
 - **Objective tracker, XP and reputation bars.**
 - **Chat:** a Modern UI window with its own tabs at the bottom left, with the combat log mirrored at the bottom right.

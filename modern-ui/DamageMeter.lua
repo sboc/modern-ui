@@ -4,6 +4,8 @@ local UI = ns.UI
 -- Damage meter window. Reads Blizzard's built-in meter data (C_DamageMeter)
 -- and draws its own compact window. Numbers and names can be "secret" in
 -- combat, so they only ever go to StatusBars / SetText / string.format.
+-- Click a player for the skills behind their number (same type and session);
+-- right-click or the back arrow returns to the list.
 local DM = ns:NewModule("damagemeter")
 ns.DamageMeter = DM
 
@@ -23,6 +25,7 @@ local HEADER_H = 22
 local win
 local started = false
 local rows = {}
+local detail   -- the player whose skills are shown: { guid, name, r, g, b }; nil shows the player list
 
 local function cfg() return ns.db.damagemeter end
 
@@ -58,6 +61,14 @@ local function classColor(src)
     return 0.55, 0.55, 0.6
 end
 
+local function secret(v) return issecretvalue and issecretvalue(v) end
+
+-- amount as a percentage of total, nil while either is secret
+local function share(amount, total)
+    local ok, p = pcall(function() if total > 0 then return amount / total * 100 end end)
+    return ok and p or nil
+end
+
 local function createRow(i)
     local r = CreateFrame("StatusBar", nil, win)
     r:SetMinMaxValues(0, 1)
@@ -73,6 +84,17 @@ local function createRow(i)
     r.value = r:CreateFontString(nil, "OVERLAY")
     r.value:SetJustifyH("RIGHT")
     r.value:SetPoint("RIGHT", -4, 0)
+    r.icon = r:CreateTexture(nil, "OVERLAY")
+    r.icon:SetPoint("LEFT", 1, 0)
+    r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    r:EnableMouse(true)
+    r:SetScript("OnMouseUp", function(self, button)
+        if detail then
+            if button == "RightButton" then DM:ShowList() end
+        elseif button == "LeftButton" and self.src then
+            DM:ShowSource(self.src)
+        end
+    end)
     rows[i] = r
     return r
 end
@@ -87,12 +109,22 @@ local function update()
         local ok, res = pcall(C_DamageMeter.GetCombatSessionFromType, sessionType, meterType)
         if ok then s = res end
     end
-    local sources = s and s.combatSources
     local isRate = (c.type == "Dps" or c.type == "Hps")
+    if detail then
+        local d
+        if meterType ~= nil and sessionType ~= nil and C_DamageMeter.GetCombatSessionSourceFromType then
+            local ok, res = pcall(C_DamageMeter.GetCombatSessionSourceFromType, sessionType, meterType, detail.guid)
+            if ok then d = res end
+        end
+        DM.UpdateSpells(c, d, isRate)
+        return
+    end
+    local sources = s and s.combatSources
 
     for i = 1, MAX_ROWS do
         local row = rows[i]
         local src = (i <= c.rows) and sources and sources[i] or nil
+        if row then row.src = src end
         if row and src then
             pcall(function()
                 local mx = s.maxAmount
@@ -115,6 +147,56 @@ local function update()
     end
 end
 
+-- the skills of one player: biggest first (sorted here while the numbers are readable, the client's
+-- order otherwise), with each skill's share of the player's total when that can be worked out
+function DM.UpdateSpells(c, d, isRate)
+    local spells = d and d.combatSpells
+    local list, total = spells, nil
+    if spells and spells[1] and not secret(spells[1].totalAmount) then
+        local ok = pcall(function()
+            local copy, sum = {}, 0
+            for i, sp in ipairs(spells) do copy[i] = sp; sum = sum + sp.totalAmount end
+            table.sort(copy, function(a, b) return a.totalAmount > b.totalAmount end)
+            list, total = copy, sum
+        end)
+        if not ok then list, total = spells, nil end
+    end
+    local getName = (C_Spell and C_Spell.GetSpellName) or GetSpellInfo
+    local getIcon = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTexture
+    for i = 1, MAX_ROWS do
+        local row = rows[i]
+        local sp = (i <= c.rows) and list and list[i] or nil
+        if row and sp then
+            pcall(function()
+                local mx = d.maxAmount
+                if mx == nil then mx = list[1].totalAmount end
+                row:SetMinMaxValues(0, mx)
+                row:SetValue(sp.totalAmount)
+                row:SetStatusBarColor(detail.r, detail.g, detail.b)
+                row.rank:SetText("")
+                row.icon:SetTexture(getIcon and getIcon(sp.spellID) or 134400)
+                row.name:SetText(getName and getName(sp.spellID) or "")
+                pcall(function()   -- pet skills: whose they are
+                    if type(sp.creatureName) == "string" then
+                        row.name:SetFormattedText("%s (%s)", getName(sp.spellID), sp.creatureName)
+                    end
+                end)
+                local pct = not isRate and total and share(sp.totalAmount, total)
+                if isRate then
+                    row.value:SetText(ns.ShortNumber(sp.amountPerSecond or sp.totalAmount))
+                elseif pct then
+                    row.value:SetFormattedText("%s  (%.1f%%)", ns.ShortNumber(sp.totalAmount), pct)
+                else
+                    row.value:SetFormattedText("%s  (%s)", ns.ShortNumber(sp.totalAmount), ns.ShortNumber(sp.amountPerSecond))
+                end
+            end)
+            row:Show()
+        elseif row then
+            row:Hide()
+        end
+    end
+end
+
 local function layout()
     local c = cfg()
     win:SetScale(c.scale * ns.db.general.scale)
@@ -125,6 +207,11 @@ local function layout()
     win.typeBtn:SetLabel(typeLabel(c.type))
     win.sessionBtn:SetLabel(c.session == "Overall" and "Overall" or "Current")
     ns:SetFont(win.typeBtn.text, 13, "")
+    ns:SetFont(win.title, 13, "")
+    win.typeBtn:SetShown(not detail)
+    win.backBtn:SetShown(detail ~= nil)
+    win.title:SetShown(detail ~= nil)
+    if detail then pcall(win.title.SetText, win.title, detail.name) end
     for i = 1, MAX_ROWS do
         local r = rows[i] or createRow(i)
         r:ClearAllPoints()
@@ -136,8 +223,10 @@ local function layout()
         ns:SetFont(r.rank, fs, "OUTLINE")
         ns:SetFont(r.name, fs, "OUTLINE")
         ns:SetFont(r.value, fs, "OUTLINE")
+        r.icon:SetSize(rh - 2, rh - 2)
+        r.icon:SetShown(detail ~= nil)
         r.name:ClearAllPoints()
-        r.name:SetPoint("LEFT", r, "LEFT", c.showRank and 22 or 6, 0)
+        r.name:SetPoint("LEFT", r, "LEFT", detail and (rh + 3) or (c.showRank and 22 or 6), 0)
         r.name:SetPoint("RIGHT", r.value, "LEFT", -6, 0)
     end
     update()
@@ -163,6 +252,14 @@ local function create()
         layout()
     end)
     win.sessionBtn:SetPoint("LEFT", win.typeBtn, "RIGHT", 3, 0)
+    -- skill breakdown header: back arrow and the player's name, in the type button's place
+    win.backBtn = UI.Button(win, "<", HEADER_H - 4, HEADER_H - 4, function() DM:ShowList() end)
+    win.backBtn:SetPoint("TOPLEFT", 2, -2)
+    win.title = win:CreateFontString(nil, "OVERLAY")
+    win.title:SetJustifyH("LEFT")
+    win.title:SetWordWrap(false)
+    win.title:SetPoint("LEFT", win.backBtn, "RIGHT", 4, 0)
+    win.title:SetPoint("RIGHT", win.sessionBtn, "LEFT", -3, 0)
     win.resetBtn = UI.Button(win, "R", HEADER_H - 4, HEADER_H - 4, function()
         UI.Confirm("Reset all damage meter data?", function()
             if C_DamageMeter and C_DamageMeter.ResetAllCombatSessions then pcall(C_DamageMeter.ResetAllCombatSessions) end
@@ -184,7 +281,25 @@ local function create()
     ns:On("PLAYER_REGEN_DISABLED", function() update(); DM:UpdateVisibility() end)
     ns:On("DAMAGE_METER_COMBAT_SESSION_UPDATED", update)
     ns:On("DAMAGE_METER_CURRENT_SESSION_UPDATED", update)
-    ns:On("DAMAGE_METER_RESET", update)
+    ns:On("DAMAGE_METER_RESET", function() DM:ShowList() end)
+end
+
+-- src: an entry of the session's combatSources (its guid and name can be secret: they are only passed on)
+function DM:ShowSource(src)
+    if not win then return end
+    if type(src.sourceGUID) == "nil" then
+        ns:Print("Damage meter: the client gives no id for this entry, so no skill breakdown.")
+        return
+    end
+    local r, g, b = classColor(src)
+    detail = { guid = src.sourceGUID, name = src.name, r = r, g = g, b = b }
+    layout()
+end
+
+function DM:ShowList()
+    if not win then return end
+    detail = nil
+    layout()
 end
 
 function DM:UpdateVisibility()

@@ -625,7 +625,7 @@ local function damageMeterOptions()
     return {
         Header("Damage Meter"),
         Check("damagemeter.enabled", "Show the damage meter window"),
-        Text("Reads Blizzard's built-in meter data and draws a compact window. Click the header buttons to switch type / session, R resets."),
+        Text("Reads Blizzard's built-in meter data and draws a compact window. Click the header buttons to switch type / session, R resets. Click a player for the skills behind their number; right-click or the back arrow returns to the list."),
         Check("damagemeter.hideBlizzard", "Turn off Blizzard's own damage meter window"),
         Select("damagemeter.type", "Meter type", function() return ns.DamageMeter:TypeValues() end),
         Select("damagemeter.session", "Session", SESSIONS),

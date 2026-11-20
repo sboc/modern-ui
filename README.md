@@ -40,7 +40,7 @@ There is one standard layout: action bars centered at the bottom, pet and stance
 - Raid frames: one column per raid group (secure group headers, so members re-sort in combat), debuffs inside the frame, out-of-range members fade. Blizzard's raid frames are hidden (the raid manager on the left edge stays); party frames step aside in a raid. `/mui test raid` shows you in group 1.
 - Profiles can be exported / imported as text (Profiles page). The import is a plain parser: no code is run, and values of the wrong type are dropped.
 - Chat: web addresses are clickable and open a copy box. Loot roll frames sit on a movable anchor. BigWigs gets a "Modern UI" bar style, DBM timer bars are restyled (both untested: neither addon was installed while writing).
-- Damage meter: own window drawn from Blizzard's `C_DamageMeter` data (secret-safe). Cooldown manager: Blizzard's viewers are positioned and skinned, not rebuilt.
+- Damage meter: own window drawn from Blizzard's `C_DamageMeter` data (secret-safe); click a player for their skill breakdown. Cooldown manager: Blizzard's viewers are positioned and skinned, not rebuilt.
 
 ## Target client
 Built for **WoW Forever** (game type `camelot`, 12.1 engine with vanilla content, interface `16001`). Combo points show on the target frame, bar 1 pages by stance/form offset (page 6 + offset) for every class. Shamans get a Modern UI totem bar (Totems.lua).
