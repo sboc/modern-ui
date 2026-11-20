@@ -5,6 +5,7 @@ local UI = ns.UI
 -- on party / raid members in range. Party and raid checks are off by default. Only for buffs you know; each one
 -- can be switched off in the options. Other units' auras can be unreadable on this client: a unit whose auras
 -- cannot be read is skipped, never reported as "missing". Hidden in combat, while dead and while resting (inn, city).
+-- One more row for food: you are not Well Fed while the Food macro's pick gives a buff (ns.Consumables.buffFood).
 local R = ns:NewModule("buffreminder")
 ns.BuffReminder = R
 
@@ -152,11 +153,28 @@ local function inReach(unit)
     return true
 end
 
+-- the food row: a pseudo entry for timeLeft, names filled on first use (spell names can be missing at load)
+local FOOD = { names = {} }
+local function foodRow(c)
+    local food = c.food and ns.Consumables and ns.Consumables.buffFood
+    if not food then return end
+    if not next(FOOD.names) then   -- while eating ("Food") counts too, Well Fed only comes after 10 seconds
+        FOOD.names[spellName(19705, "Well Fed")] = true
+        FOOD.names[spellName(433, "Food")] = true
+    end
+    local left = timeLeft("player", FOOD)
+    if not left or left >= math.max(c.threshold, 1) then return end
+    local getIcon = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
+    local name = food.link:match("%[(.-)%]") or "food"
+    return (left == 0 and "Not Well Fed" or "Well Fed: " .. fmt(left)) .. " (eat " .. name .. ")",
+           getIcon and getIcon(food.itemID)
+end
+
 local function refresh()
     if not frame then return end
     local c = cfg()
     local list = resolve()
-    if not c.enabled or #list == 0 or UnitAffectingCombat("player") or UnitIsDeadOrGhost("player")
+    if not c.enabled or UnitAffectingCombat("player") or UnitIsDeadOrGhost("player")
        or (IsResting and IsResting()) then
         frame:Hide()
         return
@@ -197,6 +215,18 @@ local function refresh()
             row:Hide()
         end
     end
+    local row = rows[#list + 1]
+    local text, icon = foodRow(c)
+    if text then
+        shown = shown + 1
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(shown - 1) * (c.size + 4))
+        row.icon:SetTexture(icon)
+        row.text:SetText(text)
+        row:Show()
+    else
+        row:Hide()
+    end
     frame:SetShown(shown > 0)
 end
 
@@ -215,7 +245,7 @@ local function build()
     frame = CreateFrame("Frame", "ModernUIBuffReminder", UIParent)
     frame:SetFrameStrata("HIGH")
     rows = {}
-    for i = 1, #resolve() do
+    for i = 1, #resolve() + 1 do   -- + the food row
         local row = CreateFrame("Frame", nil, frame)
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetPoint("LEFT")
@@ -242,10 +272,7 @@ end
 
 function R:Apply()
     if not ns.db then return end
-    if not frame then
-        if #resolve() == 0 then return end
-        build()
-    end
+    if not frame then build() end
     layout()
     ns.Mover:Position("buffreminder")
     refresh()

@@ -332,6 +332,7 @@ local function consumableOptions()
         Header("Preferred food"),
         Check("consumables.auto", "Detect the preferred food and water from my class and spec"),
         Text("Picks the stat order that suits your role (healer, caster, strength / agility melee or tank) and follows spec changes. Falls back to the lists below when your spec cannot be detected or this is off."),
+        Text("Below max level, food with an experience bonus always comes first (the biggest bonus wins) and is never fed to a hunter's pet. At max level the bonus is ignored."),
         Text(consumableDetectedText()),
     }
     for _, kind in ipairs({ "food", "water" }) do
@@ -351,7 +352,7 @@ local function consumableOptions()
     end
     o[#o + 1] = Header("Health potion")
     o[#o + 1] = Check("consumables.healthpot.enabled", "Manage the " .. K.MACROS.healthpot .. " macro")
-    o[#o + 1] = Text("Points the macro at the health potion that heals the most among the ones you are high enough level to use. Rejuvenation potions only win when no pure healing potion is as big.")
+    o[#o + 1] = Text("Points the macro at the health potion that heals the most among the ones you are high enough level to use. Rejuvenation potions only win when no pure healing potion is as big. With a warlock healthstone in your bags, the first press uses the healthstone and the next one the potion (starts over after combat). A healthstone still on cooldown is left out until it is ready.")
     o[#o + 1] = Header("Hunter pet food")
     o[#o + 1] = Check("consumables.petfood.enabled", "Manage the " .. K.MACROS.petfood .. " macro (hunters)")
     o[#o + 1] = Text("Feeds your current pet the worst food in your bags that its diet allows, judged by the food priority above, so your good buff food stays for you. The macro runs Feed Pet and uses the item; it re-picks when you summon another pet. The diet is guessed from the item name (English client).")
@@ -566,6 +567,8 @@ local function buffReminderOptions()
         Check("buffreminder.party", "Check party members in range"),
         Check("buffreminder.raid", "Check raid members in range"),
         Text("Armors, auras, aspects and blessings are only checked on you."),
+        Check("buffreminder.food", "Remind me to eat when I am not Well Fed and have buff food"),
+        Text("Buff food is what the Food macro picks (see Food, Water & Potions), when it gives a stat or, below max level, an experience bonus."),
         Range("buffreminder.threshold", "Warn when less than this is left", 0, 600, 10, function(v) return v .. " s" end),
         Range("buffreminder.size", "Icon size", 20, 64, 1, px),
         Range("buffreminder.scale", "Scale", 0.5, 2, 0.05, x2),

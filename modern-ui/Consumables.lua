@@ -2,8 +2,11 @@ local ADDON, ns = ...
 
 -- Consumables: keeps four global macros ("Food", "Water", "Health Potion", "Pet Food", shared by all characters) pointed at the
 -- best food / drink / health potion in your bags. The potion pick is simply the biggest heal you can use at your level.
+-- With a warlock healthstone in the bags, "Health Potion" uses the healthstone first and the potion on the next press.
 -- Hunters also get "Pet Food": the WORST food (by the food stat priority) that the current pet's diet allows, so the good
 -- buff food stays for the player.
+-- While leveling, food with an experience bonus beats everything else on the Food macro (and is never fed to the pet);
+-- at max level the bonus is ignored. K.buffFood is the food pick when it gives a buff (for the buff reminder).
 -- "Best" = the user's stat priority list first (attack power, spell power, ...), then the bigger buff, then the bigger
 -- restore, then the higher level item. Items above your level are ignored. Macros can only be edited out of
 -- combat, so updates made in combat are queued until it ends.
@@ -183,7 +186,7 @@ local function tooltipText(itemID, link)
     c = table.concat(lines, " "):lower()
     -- a half-loaded tooltip (name + level, no "Use:" line yet) must not be cached, or the item stays "not food" all session
     -- (after a few tries accept it: some items genuinely have no restore text)
-    if not (c:find("health", 1, true) or c:find("mana", 1, true)) then
+    if not (c:find("health", 1, true) or c:find("mana", 1, true) or c:find("life", 1, true)) then
         tries[itemID] = (tries[itemID] or 0) + 1
         if tries[itemID] < 5 then return nil end
     end
@@ -234,6 +237,9 @@ local function classify(itemID, link)
     info.food = info.healthAmt > 0
     info.water = info.manaAmt > 0
     if not info.food and not info.water then return end
+    -- "... gain 10% more experience ..."; a bonus without a readable number still counts
+    info.xp = text:find("experience", 1, true) and (number(text, "(%d+)%%[%a%s]-experience")
+              or number(text, "experience[%a%s]-(%d+)%%") or 1) or 0
 
     -- stat text lives after the restore part; check the whole tooltip, the restore numbers are never a stat keyword
     for _, c in ipairs(K.CATEGORIES) do
@@ -288,6 +294,23 @@ local function itemDiet(link, classID, subClassID)
             if (" " .. name .. " "):find("%A" .. w .. "s?%A") then return d[1] end
         end
     end
+end
+
+-- warlock healthstones (every rank and the talent-improved ones share the word); the heal is read from the tooltip
+local function isHealthstone(link)
+    return itemName(link):find("healthstone", 1, true) ~= nil
+end
+
+-- seconds until the item can be used again; 0 when ready or unknown (a global cooldown does not count)
+local function cooldownLeft(itemID)
+    local fn = (C_Container and C_Container.GetItemCooldown) or GetItemCooldown
+    if not fn then return 0 end
+    local ok, start, dur = pcall(fn, itemID)
+    if not ok or ns.IsSecret(start) or ns.IsSecret(dur) or type(start) ~= "number" or type(dur) ~= "number"
+       or start == 0 or dur <= 1.5 then
+        return 0
+    end
+    return math.max(0, start + dur - GetTime())
 end
 
 -- uncooked fish ("Raw Sagefish"): a cooking ingredient, never picked for the pet food or the food macro
@@ -377,8 +400,14 @@ local function buildRank(kind)
     return rank
 end
 
--- score: bigger table order = better. Returns nil if the item gives nothing for this kind.
-local function score(info, kind, rank, minLevel)
+-- below max level (and experience not turned off): experience bonuses count
+local function leveling()
+    if IsXPUserDisabled and IsXPUserDisabled() then return false end
+    return (UnitLevel("player") or 1) < (GetMaxPlayerLevel and GetMaxPlayerLevel() or 60)
+end
+
+-- score: smaller table order = better (see better). xp: the experience bonus to rank first, 0 at max level
+local function score(info, kind, rank, minLevel, xp)
     local bestRank, bestAmt = 1000, 0
     for key, amt in pairs(info.cats) do
         local r = rank[key]
@@ -386,18 +415,19 @@ local function score(info, kind, rank, minLevel)
     end
     if kind == "healthpot" then return { -info.healthAmt, info.manaAmt, -minLevel } end   -- biggest heal, pure heal before rejuvenation
     local restore = kind == "food" and info.healthAmt or info.manaAmt
-    return { bestRank, -bestAmt, -restore, -minLevel }
+    return { kind == "food" and -xp or 0, bestRank, -bestAmt, -restore, -minLevel }
 end
 
 -- pet food: reverse of the food order. Items with no listed stat are the worst (rank 1000), then the smallest buff,
--- then the smallest restore; a higher item level wins last so the feeding still gives the pet happiness
-local function petScore(info, rank, minLevel)
+-- then the smallest restore; a higher item level wins last so the feeding still gives the pet happiness. Experience
+-- food (xp > 0 while leveling) comes last of all, it is the player's
+local function petScore(info, rank, minLevel, xp)
     local bestRank, bestAmt = 1000, 0
     for key, amt in pairs(info.cats) do
         local r = rank[key]
         if r and (r < bestRank or (r == bestRank and amt > bestAmt)) then bestRank, bestAmt = r, amt end
     end
-    return { -bestRank, bestAmt, info.healthAmt, -minLevel }
+    return { xp, -bestRank, bestAmt, info.healthAmt, -minLevel }
 end
 
 local function better(a, b)
@@ -408,9 +438,10 @@ local function better(a, b)
     return false
 end
 
--- returns { food = { itemID, link, name }, water = ... }, pending (tooltips still loading)
+-- returns { food = { itemID, link }, water = ..., healthstone = ... }, pending (tooltips still loading)
 function K:Scan()
     local playerLevel = UnitLevel("player") or 1
+    local useXP = leveling()
     local ranks = { food = buildRank("food"), water = buildRank("water") }
     local best, bestScore = {}, {}
     local diets = K:PetFoodActive() and petDiets() or nil
@@ -424,6 +455,19 @@ function K:Scan()
             local id = si and si.itemID
             if link and id and not seen[id] then
                 seen[id] = true
+                if cfg().healthpot and cfg().healthpot.enabled and isHealthstone(link) then
+                    local text = tooltipText(id, link)
+                    if text then
+                        -- "Instantly restores 1200 life" (older ranks say life, newer ones health)
+                        local s = { -(number(text, "(%d+) life") or number(text, "(%d+) health") or 0) }
+                        if better(s, bestScore.healthstone) then
+                            bestScore.healthstone = s
+                            best.healthstone = { itemID = id, link = link }
+                        end
+                    else
+                        pending = true
+                    end
+                end
                 local info, wait = classify(id, link)
                 if wait then pending = true end
                 local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
@@ -442,7 +486,7 @@ function K:Scan()
                         if not minLevel then pending = true end
                         minLevel = minLevel or 0
                         if minLevel <= playerLevel then
-                            local s = petScore(info, ranks.food, minLevel)
+                            local s = petScore(info, ranks.food, minLevel, useXP and info.xp or 0)
                             if better(s, bestScore.petfood) then
                                 bestScore.petfood = s
                                 best.petfood = { itemID = id, link = link }
@@ -458,10 +502,12 @@ function K:Scan()
                     if minLevel <= playerLevel then
                         for _, kind in ipairs(KINDS) do
                             if info[kind] and cfg()[kind] and cfg()[kind].enabled then
-                                local s = score(info, kind, ranks[kind], minLevel)
+                                local s = score(info, kind, ranks[kind], minLevel, useXP and info.xp or 0)
                                 if better(s, bestScore[kind]) then
                                     bestScore[kind] = s
-                                    best[kind] = { itemID = id, link = link }
+                                    -- buff: eating it gives a buff worth having (any stat, or experience while leveling)
+                                    best[kind] = { itemID = id, link = link,
+                                                   buff = next(info.cats) ~= nil or (useXP and info.xp > 0) }
                                 end
                             end
                         end
@@ -476,7 +522,13 @@ end
 ----------------------------------------------------------------------
 -- Macros
 ----------------------------------------------------------------------
-local function macroBody(kind, pick)
+-- stone: the healthstone for the health potion macro. With a potion too, the macro casts the stone first and the potion
+-- on the next press (reset after combat); the sequence only moves on when the use worked
+local function macroBody(kind, pick, stone)
+    if stone then
+        if pick then return "#showtooltip\n/castsequence reset=combat item:" .. stone.itemID .. ", item:" .. pick.itemID end
+        return "#showtooltip\n/use item:" .. stone.itemID
+    end
     if pick and kind == "petfood" then return "#showtooltip\n/cast Feed Pet\n/use item:" .. pick.itemID end
     if pick then return "#showtooltip\n/use item:" .. pick.itemID end
     return "#showtooltip\n/run print(\"Modern UI: no " .. KIND_LABEL[kind]:lower() .. " in your bags\")"
@@ -484,9 +536,9 @@ end
 
 local lastPick = {}
 
-local function writeMacro(kind, pick)
+local function writeMacro(kind, pick, stone)
     local name = K.MACROS[kind]
-    local body = macroBody(kind, pick)
+    local body = macroBody(kind, pick, stone)
     local idx = GetMacroIndexByName and GetMacroIndexByName(name) or 0
     if (not idx or idx == 0) and GetMacroIndexByName and OLD_MACROS[kind] then
         idx = GetMacroIndexByName(OLD_MACROS[kind]) or 0   -- keeps the action bar slot
@@ -512,17 +564,20 @@ local function writeMacro(kind, pick)
         end
         CreateMacro(name, "INV_Misc_QuestionMark", body, false)
     end
-    local id = pick and pick.itemID or nil
+    local id = (pick or stone) and ((stone and stone.itemID or "") .. ":" .. (pick and pick.itemID or "")) or nil
     if cfg().announce and lastPick[kind] ~= id then
-        ns:Print(string.format("%s macro: %s", KIND_LABEL[kind], pick and pick.link or "nothing found"))
+        local items = stone and pick and (stone.link .. ", then " .. pick.link) or (stone or pick or {}).link
+        ns:Print(string.format("%s macro: %s", KIND_LABEL[kind], items or "nothing found"))
     end
     lastPick[kind] = id
 end
 
 function K:Update()
-    if not ns.db or not cfg().enabled then return end
+    if not ns.db then return end
+    if not cfg().enabled then K.buffFood = nil; return end
     ns:AfterCombat("consumables", function()
         local best, pending = K:Scan()
+        K.buffFood = cfg().food.enabled and best.food and best.food.buff and best.food or nil
         for _, kind in ipairs(KINDS) do
             local active = cfg()[kind] and cfg()[kind].enabled
             if kind == "petfood" then
@@ -530,8 +585,17 @@ function K:Update()
                 active = active and K:PetFoodActive()
                 if active and not (UnitExists("pet") and petDiets()) and GetMacroIndexByName(K.MACROS.petfood) > 0 then active = false end
             end
+            local stone = kind == "healthpot" and best.healthstone or nil
+            if stone and best.healthpot then
+                -- a stone on cooldown would hold up the sequence: potion only until it is ready (macros can't change in combat)
+                local left = cooldownLeft(stone.itemID)
+                if left > 0 then
+                    stone = nil
+                    C_Timer.After(left + 0.5, function() K:Queue(0.1) end)
+                end
+            end
             if active then
-                local ok, err = pcall(writeMacro, kind, best[kind])
+                local ok, err = pcall(writeMacro, kind, best[kind], stone)
                 if not ok then geterrorhandler()(err) end
             end
         end
@@ -557,6 +621,7 @@ function K:Debug(verbose)
         local p = best[kind]
         ns:Print(string.format("%s: %s", kind, p and p.link or "none"))
     end
+    ns:Print("healthstone: " .. (best.healthstone and best.healthstone.link or "none"))
     if isHunter() then
         local d = petDiets()
         local names = {}
@@ -583,8 +648,8 @@ function K:Debug(verbose)
                 else
                     local cats = {}
                     for key, amt in pairs(info.cats) do cats[#cats + 1] = key .. "=" .. amt end
-                    ns:Print(link, string.format("hp %d, mana %d, minLevel %d, stats: %s",
-                        info.healthAmt, info.manaAmt, itemMinLevel(link) or -1, #cats > 0 and table.concat(cats, ",") or "NONE"))
+                    ns:Print(link, string.format("hp %d, mana %d, xp %d%%, minLevel %d, stats: %s",
+                        info.healthAmt, info.manaAmt, info.xp or 0, itemMinLevel(link) or -1, #cats > 0 and table.concat(cats, ",") or "NONE"))
                     ns:Print("   ", textCache[id] or "?")
                 end
             end

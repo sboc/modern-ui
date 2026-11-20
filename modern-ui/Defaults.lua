@@ -196,7 +196,7 @@ ns.defaults = {
     totems = { enabled = true, size = 32, spacing = 3, scale = 1, last = {} },   -- last: slot -> spell the slot's button casts
     weaponenchants = { enabled = true, size = 24 },
     buffreminder = { enabled = true, self = true, party = false, raid = false, threshold = 120, size = 32, scale = 1,
-                     off = {} }, -- off[first spell id] = true: that buff is not reminded of
+                     food = true, off = {} }, -- off[first spell id] = true: that buff is not reminded of
     unitframes = {
         enabled = true,
         classColor = true,
