@@ -816,6 +816,8 @@ SlashCmdList["MODERNUI"] = function(msg)
         ns.Minimap:DebugFlyout()
     elseif cmd == "food" and ns.Consumables then
         ns.Consumables:Debug(rest == "all")
+    elseif cmd == "shot" and ns.ActionBars and ns.ActionBars.DebugShot then
+        ns.ActionBars:DebugShot()
     elseif cmd == "chat" and ns.Chat and ns.Chat.Debug then
         ns.Chat:Debug()
     else

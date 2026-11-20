@@ -849,6 +849,62 @@ local function setupSwingTimer()
     end)
 end
 
+-- /mui shot: prints the auto-repeat and spell cast events with their timing, the ranged speed the
+-- client reports, and the gap between shots next to the speed the shot timer counts down from.
+local shotTrace
+
+local function traceValue(v)
+    if issecretvalue and issecretvalue(v) then return "secret" end
+    if type(v) == "number" then return string.format("%.3f", v) end
+    return tostring(v)
+end
+
+function AB:DebugShot()
+    if shotTrace then
+        shotTrace:UnregisterAllEvents()
+        shotTrace = nil
+        ns:Print("shot trace off")
+        return
+    end
+    shotTrace = CreateFrame("Frame")
+    local t0, lastShot = GetTime(), nil
+    local function say(fmt, ...)
+        ns:Print(string.format("%6.2f ", GetTime() - t0) .. string.format(fmt, ...))
+    end
+    for _, e in ipairs({ "START_AUTOREPEAT_SPELL", "STOP_AUTOREPEAT_SPELL", "UNIT_SPELLCAST_SENT",
+        "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
+        "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_RANGEDDAMAGE",
+        "UNIT_ATTACK_SPEED", "PLAYER_ENTER_COMBAT", "PLAYER_LEAVE_COMBAT" }) do
+        pcall(shotTrace.RegisterEvent, shotTrace, e)
+    end
+    shotTrace:SetScript("OnEvent", function(_, event, unit, _, a3, a4)
+        if event:find("^UNIT_") and unit ~= "player" then return end
+        local ok, speed = pcall(UnitRangedDamage or error, "player")
+        speed = ok and traceValue(speed) or "n/a"
+        if event:find("^UNIT_SPELLCAST") then
+            -- SENT: unit, target, castGUID, spellID; the others: unit, castGUID, spellID
+            local id = event == "UNIT_SPELLCAST_SENT" and a4 or a3
+            local name, known = "?", not (issecretvalue and issecretvalue(id)) and type(id) == "number"
+            if known then
+                local okN, info = pcall(C_Spell and C_Spell.GetSpellInfo or error, id)
+                name = okN and info and info.name or (GetSpellInfo and GetSpellInfo(id)) or "?"
+            end
+            local extra = ""
+            if event == "UNIT_SPELLCAST_SUCCEEDED" and known and AUTO_REPEAT_SPELLS[id] then
+                -- the timer restarts on this event too (it may already have), so compare the gap instead
+                local now = GetTime()
+                extra = string.format(" | since last shot %s | timer speed %.2f",
+                    lastShot and string.format("%.2f", now - lastShot) or "-", shot.speed or 0)
+                lastShot = now
+            end
+            say("%s %s (%s) ranged speed %s%s", (event:gsub("UNIT_SPELLCAST_", "cast ")), traceValue(id), name, speed, extra)
+        else
+            say("%s ranged speed %s", event, speed)
+        end
+    end)
+    ns:Print("shot trace on: start shooting a target, stop, then /mui shot again to end it")
+end
+
 ----------------------------------------------------------------------
 -- Module API
 ----------------------------------------------------------------------
