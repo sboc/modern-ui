@@ -23,7 +23,8 @@ A complete, flat, modern replacement for the default WoW interface, built for **
 - **Full settings window** (**/mui**) and profiles. Each new character starts on its own profile; profiles can also be shared between characters.
 - **Move anything:** **/mui unlock** lets you drag frames, nudge them with the arrow keys, and right-click to reset one.
 - **Smart bags and vendor tools:** a Trash button highlights gray items below a price you set, then deletes them one click at a time, cheapest stack first; protected items are skipped.
-- **Food & Water macros:** keeps the "Food" and "Water" macros on the best consumable in your bags, ranked by a stat priority you choose. Raw fish and crafting reagents are ignored.
+- **Food, Water & Potion macros:** keeps the "Food" and "Water" macros on the best consumable in your bags, ranked by a stat priority you choose. While leveling, food with an experience bonus comes first. Raw fish and crafting reagents are ignored. The "Health Potion" macro uses your biggest healing potion; with a warlock healthstone in your bags, the first press uses the healthstone and the next one the potion. Hunters get a "Pet Food" macro that feeds the pet your worst food its diet allows.
+- **Buff reminder:** an icon when one of your class buffs is missing or running out (Arcane Intellect, Fortitude, Mark of the Wild, Demon Skin, armors, auras, aspects, ...), only for buffs you have trained. Each buff can be switched off, and party / raid members can be checked too. It also reminds you to eat when you have buff food and are not Well Fed.
 - Optional **LibSharedMedia** support for extra fonts and textures.
 
 ## Commands
@@ -35,7 +36,7 @@ A complete, flat, modern replacement for the default WoW interface, built for **
 | `/mui unlock` / `lock` | Move frames |
 | `/mui reset` | Reset the active profile |
 | `/mui bank` | View your bank anywhere, and your other characters' bags and bank |
-| `/mui food` | Show what the food and water macros would pick |
+| `/mui food` | Show what the food, water, potion and pet food macros would pick |
 
 ## Notes
 
