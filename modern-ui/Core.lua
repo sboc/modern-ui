@@ -463,7 +463,7 @@ function ns:CheckSetup()
     C_Timer.After(1.5, attempt)
 end
 
-ns.DB_VERSION = 45
+ns.DB_VERSION = 46
 
 -- Settings that changed meaning between releases.
 function ns:Migrate()
@@ -540,6 +540,16 @@ function ns:Migrate()
             if type(c) == "table" and c.powerHeight == 10 and not c.showPowerText then
                 c.powerHeight, c.showPowerText = 16, true
             end
+        end
+    end
+    if v < 46 then
+        -- swing / shot timer bar: its top lines up with the player / target frames, the Essential cooldown
+        -- row moves 4 px down to make room. Only profiles still on the old default spots move.
+        local ps = db.positions
+        local function at(p, y) return type(p) == "table" and p.point == "BOTTOM" and p.x == 0 and p.y == y end
+        if type(ps) == "table" and at(ps.swingbar, 293) then
+            ps.swingbar = ns.CopyTable(ns.defaults.positions.swingbar)
+            if at(ps.cdm_essential, 240) then ps.cdm_essential = ns.CopyTable(ns.defaults.positions.cdm_essential) end
         end
     end
     db.dbVersion = ns.DB_VERSION

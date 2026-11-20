@@ -292,11 +292,11 @@ ns.defaults.positions = {
     uf_raid = pos("LEFT", 12, 40),
 
     -- the cooldown manager sits between player and target (same row)
-    cdm_essential = pos("BOTTOM", 0, 240),
+    cdm_essential = pos("BOTTOM", 0, 236),   -- 4 px lower than the unit frames: the timer bar takes the top 4 px
     cdm_utility = pos("BOTTOM", 0, 298),
     cdm_buffs = pos("BOTTOM", 0, 338),
     cdm_bars = pos("BOTTOM", 0, 380),
-    swingbar = pos("BOTTOM", 0, 293),   -- in the 6 px gap between the Essential (top 292) and Utility (298) rows
+    swingbar = pos("BOTTOM", 0, 288),   -- top flush with the player / target frames (292), over the Essential row
 
     minimap = pos("BOTTOM", 499, 40),
     tracker = pos("TOPRIGHT", -12, -12),
