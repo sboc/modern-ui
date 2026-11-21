@@ -307,25 +307,24 @@ local function updateName(f)
     if f.friendly then f.name:SetTextColor(unitColor(unit, true)) else f.name:SetTextColor(1, 1, 1) end
 end
 
--- Quest-style con colours by level difference to the player, computed here (the Blizzard helpers differ between clients:
--- scaling-aware vs plain). red 5+, orange 3-4, yellow -2..2, green down to the green range, grey below.
+-- Classic con colours by level difference to the player, the way mob experience works (not the quest green range:
+-- GetQuestGreenRange answers for quests, and Blizzard's helpers on this client use a wider retail yellow band).
+-- red 5+ above, orange 3-4 above, yellow 2 below to 2 above, green from 3 below down to one over the grey level,
+-- grey at or under the grey level (gives no experience).
+local function greyLevel(player)
+    if player <= 5 then return 0 end
+    if player <= 39 then return player - math.floor(player / 10) - 5 end
+    if player <= 59 then return player - math.floor(player / 5) - 1 end
+    return player - 9
+end
+
 local function conColor(level)
     local player = (UnitEffectiveLevel and UnitEffectiveLevel("player")) or UnitLevel("player") or level
     local diff = level - player
     if diff >= 5 then return 1, 0.1, 0.1 end
     if diff >= 3 then return 1, 0.5, 0.25 end
     if diff >= -2 then return 1, 1, 0 end
-    local range
-    if GetQuestGreenRange then
-        local ok, v = pcall(GetQuestGreenRange, "player")
-        if ok and type(v) == "number" and not secret(v) then range = v end
-    end
-    if not range then
-        -- classic mob grey level: <=5 none, 6-49 level - floor(level/10) - 5, 50-59 level - 9, 60+ level - 12
-        local grey = player <= 5 and 0 or player <= 49 and (player - math.floor(player / 10) - 5) or player <= 59 and (player - 9) or (player - 12)
-        range = player - grey
-    end
-    if -diff <= range then return 0.25, 0.75, 0.25 end
+    if level > greyLevel(player) then return 0.25, 0.75, 0.25 end
     return 0.5, 0.5, 0.5
 end
 
