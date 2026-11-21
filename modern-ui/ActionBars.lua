@@ -569,9 +569,10 @@ end)
 -- estimate: one swing when auto attack starts, then repeating every weapon speed. It can drift from
 -- the real swings (parries, resets), but needs no protected calls.
 local swing = { start = nil, speed = 2, estimated = true }
--- Auto Shot / Shoot (wand): the same countdown on the auto-repeat button. Every shot restarts it
--- (UNIT_SPELLCAST_SUCCEEDED); between those it repeats every ranged weapon speed.
-local shot = { start = nil, speed = 2, estimated = true }
+-- Auto Shot / Shoot (wand): the same countdown on the auto-repeat button. It starts with the first shot, not
+-- with START_AUTOREPEAT_SPELL (a wand's first shot comes ~0.6 s later, or only once a cast in progress ends);
+-- every shot restarts it (UNIT_SPELLCAST_SUCCEEDED), between those it repeats every ranged weapon speed.
+local shot = { start = nil, active = false, speed = 2, estimated = true }
 local AUTO_REPEAT_SPELLS = { [75] = true, [5019] = true }   -- Auto Shot, Shoot
 local swingButtons, shotButtons, countButtons, swingDirty = {}, {}, {}, true
 local swingFrame = CreateFrame("Frame")
@@ -620,10 +621,16 @@ local function currentSpeed()
     return (ok and clean(v)) or weaponSpeed or swing.speed or 2
 end
 
+-- UnitRangedDamage is secret in combat: the last readable value (out of combat) stands in for it
+local rangedCache
+
 local function rangedSpeed()
-    if not UnitRangedDamage then return shot.speed or 2 end
-    local ok, v = pcall(UnitRangedDamage, "player")
-    return (ok and clean(v)) or shot.speed or 2
+    if UnitRangedDamage then
+        local ok, v = pcall(UnitRangedDamage, "player")
+        v = ok and clean(v)
+        if v then rangedCache = v return v end
+    end
+    return rangedCache or shot.speed or 2
 end
 
 local function swingBegin(estimated)
@@ -838,12 +845,13 @@ local function setupSwingTimer()
         if unit == "player" and swing.start then swing.speed = currentSpeed() end
     end)
     for _, e in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" }) do
-        ns:On(e, function() C_Timer.After(0.5, readWeaponSpeed) end)
+        ns:On(e, function() C_Timer.After(0.5, function() readWeaponSpeed(); rangedSpeed() end) end)
     end
-    ns:On("START_AUTOREPEAT_SPELL", function() shot.start, shot.speed = GetTime(), rangedSpeed() end)
-    ns:On("STOP_AUTOREPEAT_SPELL", function() shot.start = nil; hideSwing(shotButtons) end)
+    ns:On("UNIT_RANGEDDAMAGE", function(_, unit) if unit == "player" then rangedSpeed() end end)
+    ns:On("START_AUTOREPEAT_SPELL", function() shot.active = true end)
+    ns:On("STOP_AUTOREPEAT_SPELL", function() shot.active, shot.start = false, nil; hideSwing(shotButtons) end)
     ns:On("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellID)
-        if unit ~= "player" or not shot.start then return end
+        if unit ~= "player" or not shot.active then return end
         if issecretvalue and issecretvalue(spellID) then return end
         if AUTO_REPEAT_SPELLS[spellID] then shot.start, shot.speed = GetTime(), rangedSpeed() end
     end)
