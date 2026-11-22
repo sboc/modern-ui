@@ -523,7 +523,9 @@ end
 
 -- the combat log lines Blizzard formats / filters are mirrored into our own window
 local combatHooked = false
+local combatCalls = 0
 local function onCombatMessage(_, text, r, g, b, id)
+    combatCalls = combatCalls + 1
     if not cmf or text == nil then return end
     if rightTab == "combat" then touch(combatPanel) end
     if not pcall(cmf.AddMessage, cmf, text, r or 1, g or 1, b or 1, id) then stats.errors = stats.errors + 1 end
@@ -925,7 +927,15 @@ function CH:Debug()
         stats.hook, stats.shown, stats.errors, #buffer, table.concat(cs, " "),
         tostring(smf and smf:GetNumMessages()), tostring(smf2 and smf2:GetNumMessages()),
         tostring(cf and cf.GetNumMessages and cf:GetNumMessages())))
-    ns:Print(string.format("chat: own combat log lines=%s hooked=%s", tostring(cmf and cmf:GetNumMessages()), tostring(combatHooked)))
+    ns:Print(string.format("chat: own combat log lines=%s hooked=%s hook calls=%d", tostring(cmf and cmf:GetNumMessages()),
+        tostring(combatHooked), combatCalls))
+    -- which link of the chain fails: Blizzard's combat log addon, the frame it writes to, its active filter
+    local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or _G.IsAddOnLoaded
+    local f = _G.Blizzard_CombatLog_Filters
+    local filter = f and f.filters and f.currentFilter and f.filters[f.currentFilter]
+    ns:Print(string.format("chat: Blizzard_CombatLog loaded=%s writesToChatFrame2=%s filter=%s",
+        tostring(isLoaded and isLoaded("Blizzard_CombatLog")), tostring(_G.COMBATLOG == cl),
+        tostring(filter and filter.name)))
     if cl then
         local ok, p, rel = pcall(cl.GetPoint, cl, 1)
         ns:Print(string.format("chat: combat log shown=%s alpha=%s anchoredToPanel=%s lines=%s",
