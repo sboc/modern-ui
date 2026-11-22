@@ -995,10 +995,19 @@ local function rankOf(id)
     return sub and tonumber(sub:match("(%d+)"))
 end
 
+local retryQueued = false
 local function upgradeRanks()
     if not ns.db or not ns.db.actionbars.autoRank then return end
     if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return end   -- no spell ranks on retail
     if InCombatLockdown() or not GetActionInfo then return end
+    -- swapping goes through the cursor: never while the player holds something (it would be dropped), try again later
+    if GetCursorInfo() then
+        if not retryQueued then
+            retryQueued = true
+            C_Timer.After(1, function() retryQueued = false; upgradeRanks() end)
+        end
+        return
+    end
     local changed = 0
     for slot = 1, 180 do
         local kind, id = GetActionInfo(slot)
