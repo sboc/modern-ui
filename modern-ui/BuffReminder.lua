@@ -20,12 +20,12 @@ ns.BuffReminder = R
 -- spell name when the spells are a choice (any aura does). The first spell id is the key for the on/off setting.
 -- Names come from the spell ids so they follow the client language; fallback only for the first spell.
 -- Not here: weapon imbues and poisons (weapon enchants, see the weapon enchant icons) and Battle Shout (2 minutes,
--- cast in combat, so it would show the whole time out of combat).
+-- cast in combat, so it would show the whole time out of combat), Omen of Clarity (a proc on this client, not a buff
+-- you keep up).
 local BUFFS = {
     DRUID = {
         { spells = { 1126 }, also = { 21849 }, fallback = "Mark of the Wild" },
         { spells = { 467 }, fallback = "Thorns" },
-        { spells = { 16864 }, selfOnly = true, fallback = "Omen of Clarity" },
     },
     PRIEST = {
         { spells = { 1243 }, also = { 21562 }, fallback = "Power Word: Fortitude" },
