@@ -952,7 +952,7 @@ end
 ----------------------------------------------------------------------
 -- Saved bags and bank of every character
 ----------------------------------------------------------------------
--- ModernUIDB.inventory["Name-Realm"] = { name, realm, class, money, bags = list, bank = list }, list = { time, slots,
+-- ModernUIDB.inventory["Name-Realm"] = { name, realm, faction, class, money, bags = list, bank = list }, list = { time, slots,
 -- items = { { id, link, count, quality }, ... } }. Account wide, outside the profiles. The bags are saved whenever
 -- they change, the bank only while the character stands at a banker (its contents cannot be read anywhere else).
 local function savedChars()
@@ -982,15 +982,28 @@ end
 
 local function saveInventory()
     if not ModernUIDB then return end
+    local realm = GetRealmName()
+    if type(realm) ~= "string" or realm == "" then return end   -- not known yet / any more (logging out)
     local chars = savedChars()
-    local key = ns:CharKey()
+    local key, name = ns:CharKey(), ns:CharProfileName()
     local s = chars[key] or {}
     chars[key] = s
-    s.name, s.realm = ns:CharProfileName(), GetRealmName()
+    -- older builds also saved while logging out, under "Name-" (no realm): keep its lists where newer
+    local stray = chars[name .. "-"]
+    if stray and stray ~= s then
+        for _, view in ipairs({ "bags", "bank" }) do
+            local l = stray[view]
+            if l and (not s[view] or (l.time or 0) > (s[view].time or 0)) then s[view] = l end
+        end
+        chars[name .. "-"] = nil
+    end
+    s.name, s.realm = name, realm
+    s.faction = UnitFactionGroup("player") or s.faction
     s.class = select(2, UnitClass("player"))
     local money = GetMoney and GetMoney()
     if type(money) == "number" and not isSecret(money) then s.money = money end
-    s.bags = snapshot(playerBags()) or s.bags
+    local bags = snapshot(playerBags())
+    if bags and bags.slots > 0 then s.bags = bags end   -- 0 slots: the backpack could not be read
     if bankOpen then s.bank = snapshot(bankBags()) or s.bank end
 end
 
@@ -1005,20 +1018,25 @@ end
 local viewer
 local viewing = { view = "bank" }   -- which character (key) and which list ("bags" / "bank") the viewer shows
 
+-- characters whose items this one can get at: same realm and faction (faction unknown until the character logs in again)
+local function relevant(s)
+    return s.realm == GetRealmName() and (not s.faction or s.faction == UnitFactionGroup("player"))
+end
+
 local function charLabel(key, s)
     local label = s.name or key
-    if s.realm and s.realm ~= GetRealmName() then label = label .. " (" .. s.realm .. ")" end
     local col = s.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[s.class]
     return col and string.format("|cff%02x%02x%02x%s|r", col.r * 255, col.g * 255, col.b * 255, label) or label
 end
 
--- every saved bank holding an item: { { label = class colored character name, count = n }, ... } sorted by name
+-- every saved bank (of this realm and faction) holding an item: { { label = class colored character name, count = n }, ... }
+-- sorted by name
 function CB:BankCounts(itemID)
     local out = {}
     if not (ModernUIDB and ModernUIDB.inventory) then return out end
     for key, s in pairs(ModernUIDB.inventory) do
         local n = 0
-        for _, it in ipairs(s.bank and s.bank.items or {}) do
+        for _, it in ipairs(relevant(s) and s.bank and s.bank.items or {}) do
             if it.id == itemID then n = n + (it.count or 1) end
         end
         if n > 0 then out[#out + 1] = { label = charLabel(key, s), count = n, sort = (s.name or key):lower() } end
@@ -1065,7 +1083,9 @@ local function charButton(parent)
     local b = UI.Button(parent, "", 130, 20)
     b:SetScript("OnClick", function(self)
         local items = {}
-        for key, s in pairs(savedChars()) do items[#items + 1] = { value = key, label = charLabel(key, s), sort = (s.name or key):lower() } end
+        for key, s in pairs(savedChars()) do
+            if relevant(s) then items[#items + 1] = { value = key, label = charLabel(key, s), sort = (s.name or key):lower() } end
+        end
         table.sort(items, function(a, c) return a.sort < c.sort end)
         UI.OpenDropdown(self, items, viewing.key, function(key) showSaved(key) end)
     end)
@@ -1233,7 +1253,7 @@ function CB:Init()
     -- saved copies: on every change (bank changes only arrive while it is open) and once the bank has loaded
     local function save() pcall(saveInventory) end
     for _, e in ipairs({ "BAG_UPDATE_DELAYED", "PLAYER_MONEY", "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED",
-                         "BANK_TABS_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGOUT" }) do
+                         "BANK_TABS_CHANGED", "PLAYER_ENTERING_WORLD" }) do
         ns:On(e, save)
     end
     ns:On("BANKFRAME_OPENED", function() C_Timer.After(0.5, save) end)
