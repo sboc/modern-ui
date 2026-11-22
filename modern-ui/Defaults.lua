@@ -105,7 +105,7 @@ ns.defaults = {
     },
     minimap = {
         enabled = true, shape = "square", size = 219, scale = 1, alpha = 1, borders = true,
-        zoneText = true, clock = true, clock24 = true, serverTime = false, mouseZoom = true,
+        zoneText = true, coords = true, clock = true, clock24 = true, serverTime = false, mouseZoom = true,
         showTracking = true, showCalendar = true, showMail = true, showDifficulty = true,
         showLanding = true, showQueue = true, showAddons = true,
         flyout = true, flyoutQueue = true, flyoutAddons = true, flyoutColumns = 4, flyoutSize = 28,

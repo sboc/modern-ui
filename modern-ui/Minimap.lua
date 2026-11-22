@@ -340,7 +340,7 @@ local function createLauncher()
 end
 
 ----------------------------------------------------------------------
--- Zone text + clock
+-- Zone text, coordinates + clock
 ----------------------------------------------------------------------
 local function zoneColor()
     local pvp = GetZonePVPInfo and GetZonePVPInfo()
@@ -357,6 +357,24 @@ local function updateZone()
     local text = GetMinimapZoneText and GetMinimapZoneText() or ""
     holder.zone:SetText(text)
     holder.zone:SetTextColor(zoneColor())
+end
+
+-- empty where the map has no position for the player (instances)
+local function updateCoords()
+    if not holder or not holder.coords or not holder.coords:IsShown() then return end
+    local x, y
+    local map = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if map then
+        local pos = C_Map.GetPlayerMapPosition(map, "player")
+        if pos then x, y = pos:GetXY() end
+    elseif GetPlayerMapPosition then
+        x, y = GetPlayerMapPosition("player")
+    end
+    if x and y and (x > 0 or y > 0) then
+        holder.coords:SetText(string.format("%.1f, %.1f", x * 100, y * 100))
+    else
+        holder.coords:SetText("")
+    end
 end
 
 local function updateClock()
@@ -481,6 +499,10 @@ local function create()
     holder.zone:SetAlpha(0.8)
     holder.zone:SetShadowColor(0, 0, 0, 0.9)
     holder.zone:SetShadowOffset(1, -1)
+    holder.coords = holder.textFrame:CreateFontString(nil, "OVERLAY")
+    holder.coords:SetAlpha(0.8)
+    holder.coords:SetShadowColor(0, 0, 0, 0.9)
+    holder.coords:SetShadowOffset(1, -1)
     holder.clock = holder.textFrame:CreateFontString(nil, "OVERLAY")
     holder.clock:SetPoint("BOTTOM", holder, "BOTTOM", 0, 5)
     holder.clock:SetAlpha(0.8)
@@ -491,10 +513,11 @@ local function create()
     createLauncher()
 
     local tick = CreateFrame("Frame", nil, holder)
-    local acc = 1
+    local acc, coordAcc = 1, 1
     tick:SetScript("OnUpdate", function(_, e)
-        acc = acc + e
+        acc, coordAcc = acc + e, coordAcc + e
         if acc >= 1 then acc = 0; updateClock() end
+        if coordAcc >= 0.2 then coordAcc = 0; updateCoords() end
     end)
     for _, e in ipairs({ "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD" }) do
         ns:On(e, updateZone)
@@ -599,13 +622,23 @@ function MM:Apply()
         end)
 
         ns:SetFont(holder.zone, math.max(9, ns.db.general.fontSize - 2), "")
+        ns:SetFont(holder.coords, math.max(9, ns.db.general.fontSize - 2), "")
         ns:SetFont(holder.clock, math.max(9, ns.db.general.fontSize - 2), "")
         holder.zone:SetWidth(size - 10)
         launcher:SetShown(c.showButton)
         placeLauncher()
         holder.zone:SetShown(c.zoneText)
         holder.clock:SetShown(c.clock)
+        -- coordinates sit under the zone name, or take its place at the top when it is hidden
+        holder.coords:ClearAllPoints()
+        if c.zoneText then
+            holder.coords:SetPoint("TOP", holder.zone, "BOTTOM", 0, -2)
+        else
+            holder.coords:SetPoint("TOP", holder, "TOP", 0, -5)
+        end
+        holder.coords:SetShown(c.coords)
         updateZone()
+        updateCoords()
         updateClock()
         ns.Mover:Position("minimap")
         -- an attached tracker stops under the minimap when it sits above it: re-measure

@@ -377,6 +377,7 @@ local function minimapOptions()
         Check("minimap.showButton", "Modern UI button on the map (left-click settings, right-click reload, drag to move)"),
         Header("Text"),
         Check("minimap.zoneText", "Show zone name"),
+        Check("minimap.coords", "Show player coordinates"),
         Check("minimap.clock", "Show clock"),
         Check("minimap.clock24", "24-hour clock"),
         Check("minimap.serverTime", "Use server time"),
