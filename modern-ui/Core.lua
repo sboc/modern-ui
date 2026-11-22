@@ -818,6 +818,8 @@ SlashCmdList["MODERNUI"] = function(msg)
         ns.Consumables:Debug(rest == "all")
     elseif cmd == "shot" and ns.ActionBars and ns.ActionBars.DebugShot then
         ns.ActionBars:DebugShot()
+    elseif cmd == "bankslots" and ns.CustomBags and ns.CustomBags.DebugBank then
+        ns.CustomBags:DebugBank()
     elseif cmd == "chat" and ns.Chat and ns.Chat.Debug then
         ns.Chat:Debug()
     else

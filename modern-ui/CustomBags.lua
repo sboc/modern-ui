@@ -60,7 +60,7 @@ end
 
 local BANK = BANK_CONTAINER or (Enum and Enum.BagIndex and Enum.BagIndex.Bank) or -1
 
--- Character bank containers: the old bank (main slots plus bank bags) and / or the bank tabs, whichever this client
+-- Character bank containers: the old bank (main slots plus bank bags) or the bank tabs, whichever this client
 -- has; a container it does not have reports 0 slots and adds nothing. The warband bank stays Blizzard's.
 local function bankBags()
     local list, seen = {}, {}
@@ -72,7 +72,8 @@ local function bankBags()
         seen[id] = true
         list[#list + 1] = id
     end
-    add(BANK)
+    -- with bank tabs the old main bank container still reports its slots, all empty and unused: leave it out
+    if not (E and E.CharacterBankTab_1) then add(BANK) end
     if E then for i = 1, 6 do add(E["CharacterBankTab_" .. i]) end end
     for i = 1, NUM_BANKBAGSLOTS or 0 do add(last + i) end
     return list
@@ -319,6 +320,33 @@ if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and
         if not (owner and owner.molBag) or owner.molFreeLabel then return end
         pcall(function() tip:AddLine("In " .. bagLabel(owner.molBag), 0.6, 0.8, 1) end)
     end)
+end
+
+-- /mui bankslots (at a banker): per bank container its slot count, the items read the way the bank window reads them,
+-- the client's own free count, and for the main bank the items read as inventory slots, to find miscounted free slots
+function CB:DebugBank()
+    local _, last = bagRange()
+    local E = Enum and Enum.BagIndex
+    ns:Print(string.format("bags 0-%d  NUM_BAG_SLOTS=%s NUM_REAGENTBAG_SLOTS=%s NUM_BANKBAGSLOTS=%s CharacterBankTab_1=%s bank open=%s",
+        last, tostring(NUM_BAG_SLOTS), tostring(NUM_REAGENTBAG_SLOTS), tostring(NUM_BANKBAGSLOTS),
+        tostring(E and E.CharacterBankTab_1), tostring(BankFrame and BankFrame:IsShown())))
+    local freeFn = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
+    local totalSlots, totalRead = 0, 0
+    for _, bag in ipairs(bankBags()) do
+        local n, read, inv = numSlots(bag), 0, 0
+        for slot = 1, n do
+            local info = itemInfo(bag, slot)
+            if info and info.itemID then read = read + 1 end
+            if bag == BANK and BankButtonIDToInvSlotID and GetInventoryItemID
+               and GetInventoryItemID("player", BankButtonIDToInvSlotID(slot)) then inv = inv + 1 end
+        end
+        local ok, free, family = false, nil, nil
+        if freeFn then ok, free, family = pcall(freeFn, bag) end
+        totalSlots, totalRead = totalSlots + n, totalRead + read
+        ns:Print(string.format("  %d %s: slots %d, items read %d, client free %s (family %s)%s", bag, bagLabel(bag), n, read,
+            ok and tostring(free) or "?", ok and tostring(family) or "?", bag == BANK and (", as inventory slots " .. inv) or ""))
+    end
+    ns:Print(string.format("total: slots %d, items read %d, shown free %d", totalSlots, totalRead, totalSlots - totalRead))
 end
 
 local function itemTooltip(btn, bag, slot)
