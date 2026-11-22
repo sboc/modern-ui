@@ -112,6 +112,19 @@ function UI.Button(parent, text, w, h, onClick)
     return b
 end
 
+-- Close button: the cross is drawn with two lines, a font's "X" did not fit the small button (shown as "...")
+function UI.CloseButton(parent, onClick)
+    local b = UI.Button(parent, "", 22, 20, onClick)
+    for _, ends in ipairs({ { "TOPLEFT", "BOTTOMRIGHT" }, { "TOPRIGHT", "BOTTOMLEFT" } }) do
+        local l = b:CreateLine(nil, "ARTWORK")
+        l:SetColorTexture(0.85, 0.85, 0.88, 1)
+        l:SetThickness(2)
+        l:SetStartPoint(ends[1], b, ends[1] == "TOPLEFT" and 7 or -7, -6)
+        l:SetEndPoint(ends[2], b, ends[2] == "BOTTOMRIGHT" and -7 or 7, 6)
+    end
+    return b
+end
+
 ----------------------------------------------------------------------
 -- Checkbox
 ----------------------------------------------------------------------
@@ -422,7 +435,7 @@ function UI.Window(name, title, w, h, strata)
     f.title = UI.Text(bar, title, "GameFontNormalLarge")
     f.title:SetPoint("LEFT", 12, 0)
 
-    local close = UI.Button(bar, "X", 22, 20, function() f:Hide() end)
+    local close = UI.CloseButton(bar, function() f:Hide() end)
     close:SetPoint("RIGHT", -4, 0)
     f.titleBar = bar
     f.closeButton = close

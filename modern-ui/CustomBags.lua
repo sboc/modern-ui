@@ -785,7 +785,7 @@ function Window:Build()
     self.title = UI.Text(frame, spec.title, "GameFontNormalLarge")
     self.title:SetPoint("TOPLEFT", PAD + 2, -8)
 
-    local close = UI.Button(frame, "X", 22, 20, function() frame:Hide() end)
+    local close = UI.CloseButton(frame, function() frame:Hide() end)
     close:SetPoint("TOPRIGHT", -6, -6)
     local left = close
     if spec.sort then
