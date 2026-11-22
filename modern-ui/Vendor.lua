@@ -388,22 +388,26 @@ local function bankBags()
     return CB and CB.BankBags and CB.BankBags() or {}
 end
 
-local function tradeGoodSlots(bags)
+-- skipProtected: leave items protected from selling where they are
+local function tradeGoodSlots(bags, skipProtected)
     local list = {}
     for _, bag in ipairs(bags) do
         for slot = 1, numSlots(bag) do
             local info = slotInfo(bag, slot)
-            if info and not info.isLocked and isTradeGood(info) then list[#list + 1] = { bag = bag, slot = slot } end
+            if info and not info.isLocked and isTradeGood(info)
+               and not (skipProtected and isProtected(info.itemID or itemIDFromLink(info.hyperlink))) then
+                list[#list + 1] = { bag = bag, slot = slot }
+            end
         end
     end
     return list
 end
 
--- from: bag list to move out of; verb / none / full: chat wording
-local function moveTradeGoods(from, verb, none, full)
+-- from: bag list to move out of; verb / none / full: chat wording; skipProtected: see tradeGoodSlots
+local function moveTradeGoods(from, verb, none, full, skipProtected)
     if moving or not bankOpen then return end
     if CursorHasItem and CursorHasItem() then ns:Print("Drop the item on your cursor first."); return end
-    local list = tradeGoodSlots(from())
+    local list = tradeGoodSlots(from(), skipProtected)
     if #list == 0 then ns:Print(none); return end
     moving = true
     local i = 1
@@ -420,7 +424,7 @@ local function moveTradeGoods(from, verb, none, full)
         -- count again once the server has answered: what is still there did not fit
         C_Timer.After(0.5, function()
             moving = false
-            local left = #tradeGoodSlots(from())
+            local left = #tradeGoodSlots(from(), skipProtected)
             local moved = math.max(0, #list - left)
             ns:Print(string.format("%s %d trade goods stack%s.%s", verb, moved, moved == 1 and "" or "s",
                 left > 0 and string.format(" %d could not be moved (%s full?).", left, full) or ""))
@@ -430,7 +434,7 @@ local function moveTradeGoods(from, verb, none, full)
 end
 
 function V:DepositTradeGoods()
-    moveTradeGoods(playerBags, "Deposited", "No trade goods in your bags.", "bank")
+    moveTradeGoods(playerBags, "Deposited", "No unprotected trade goods in your bags.", "bank", true)
 end
 
 function V:WithdrawTradeGoods()
@@ -452,7 +456,7 @@ end
 -- also used by the grouped bank window (CustomBags.lua)
 function V:CreateDepositButton(parent, w, h)
     return bankButton(parent, "Deposit", w or 70, h or 20, function() V:DepositTradeGoods() end,
-        "Deposit trade goods", "Moves all trade goods from your bags into the open bank tab.")
+        "Deposit trade goods", "Moves all trade goods from your bags into the open bank tab, except items protected from selling.")
 end
 
 function V:CreateWithdrawButton(parent, w, h)
