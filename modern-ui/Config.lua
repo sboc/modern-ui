@@ -587,6 +587,38 @@ local function buffReminderOptions()
     else
         o[#o + 1] = Text("Your class has no buffs to remind of.")
     end
+    -- own reminders: a spell id or a buff name, checked on you whether you know the spell or not
+    local function changed()
+        ns:RequestApply("buffreminder")
+        Config:RebuildPage("buffreminder")
+    end
+    o[#o + 1] = Header("Custom buffs")
+    o[#o + 1] = Text("Your own reminders, checked on you only, also for buffs you cannot cast (elixirs, scrolls, other classes' buffs). Add them by spell ID, or by name: a name has to match the buff exactly.")
+    o[#o + 1] = Button("Add a buff", function()
+        UI.Prompt("Spell ID or buff name", "", function(text)
+            text = strtrim(text or "")
+            if text == "" then return end
+            local v = tonumber(text)
+            if v and not ns.BuffReminder:SpellName(v) then
+                ns:Print("Buff reminder: no spell with the ID " .. text .. ".")
+                return
+            end
+            v = v or text
+            local list = ns.db.buffreminder.custom
+            for _, have in ipairs(list) do if have == v then return end end
+            list[#list + 1] = v
+            changed()
+        end)
+    end)
+    local list = ns.db.buffreminder.custom
+    for _, e in ipairs(ns.BuffReminder:CustomBuffs()) do
+        o[#o + 1] = Button("Remove " .. e.title, function()
+            for i, v in ipairs(list) do
+                if "custom:" .. tostring(v) == e.key then table.remove(list, i) break end
+            end
+            changed()
+        end, 300)
+    end
     return o
 end
 

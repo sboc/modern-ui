@@ -197,7 +197,8 @@ ns.defaults = {
     weaponenchants = { enabled = true, size = 24 },
     buffreminder = { enabled = true, self = true, party = false, raid = false, threshold = 120, size = 32, scale = 1,
                      food = true, snooze = 5,   -- snooze: minutes a clicked-away reminder stays hidden
-                     off = {} }, -- off[first spell id] = true: that buff is not reminded of
+                     off = {},      -- off[first spell id] = true: that buff is not reminded of
+                     custom = {} }, -- own reminders, checked on you: spell ids (numbers) or buff names (strings)
     unitframes = {
         enabled = true,
         classColor = true,

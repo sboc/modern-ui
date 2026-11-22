@@ -7,6 +7,8 @@ local UI = ns.UI
 -- cannot be read is skipped, never reported as "missing". Hidden in combat, while dead, while resting (inn, city)
 -- and while fishing (plus a few seconds after each cast, so it does not flash up between casts).
 -- One more row for food: you are not Well Fed while the Food macro's pick gives a buff (ns.Consumables.buffFood).
+-- Custom reminders (buffreminder.custom, added in the options by spell id or buff name): checked on you only, shown
+-- whether or not you know a spell for them (elixirs, scrolls, other classes' buffs).
 -- Clicking a row hides it for buffreminder.snooze minutes, or until it has nothing left to remind of (the buff is
 -- back, you are Well Fed), whichever comes first. Not saved: a /reload shows it again.
 local R = ns:NewModule("buffreminder")
@@ -53,7 +55,9 @@ local BUFFS = {
 }
 
 local frame, rows
+local getRow
 local entries     -- the buffs of this class, resolved: { key, spells, names = {...}, selfOnly, label, title }
+local customs     -- the custom reminders, resolved: { key, custom = true, spells, names, selfOnly, title, icon }
 local NONE = {}
 local dismissed = {}   -- entry key ("food" for the food row) -> GetTime() when the clicked-away row may show again
 local elapsed = 0
@@ -97,8 +101,30 @@ local function resolve()
     return entries
 end
 
+-- a custom reminder as saved (spell id or buff name) -> its entry; the name is the client's spelling when the
+-- client knows the spell, else as typed (it must match the buff's name)
+local function customEntry(v)
+    local id = type(v) == "number" and v or nil
+    local name = id and spellName(id) or (not id and spellName(v)) or (not id and v) or nil
+    if not name then return nil end
+    local icon = (id and spellTexture(id)) or spellTexture(name) or 134400   -- question mark
+    return { key = "custom:" .. tostring(v), custom = true, spells = { id }, names = { [name] = true }, selfOnly = true,
+             title = name, icon = icon }
+end
+
+local function resolveCustom()
+    if customs then return customs end
+    customs = {}
+    for _, v in ipairs(cfg().custom or NONE) do
+        local e = customEntry(v)
+        if e then customs[#customs + 1] = e end
+    end
+    return customs
+end
+
 -- the spell of the entry you would cast: first known one, nil = none trained
 local function knownSpell(e)
+    if e.custom then return e.spells[1] or 0 end   -- shown whether known or not; 0 = no spell id, only a name
     for _, id in ipairs(e.spells) do
         if known(id) then return id end
     end
@@ -107,6 +133,17 @@ end
 -- the buffs of your class for the options: { key, title }; the setting is buffreminder.off[key]
 function R:ClassBuffs()
     return resolve()
+end
+
+-- the custom reminders for the options: { key, title, icon } in the order of buffreminder.custom
+function R:CustomBuffs()
+    customs = nil   -- the options page is rebuilt right after a change, before the module applies it
+    return resolveCustom()
+end
+
+-- the name of a spell id (nil when the client does not know the id), for checking what is typed in the options
+function R:SpellName(id)
+    return spellName(id)
 end
 
 -- seconds left of the buff on the unit: 0 = missing, math.huge = no expiry, nil = auras of the unit unreadable.
@@ -197,7 +234,9 @@ end
 local function refresh()
     if not frame then return end
     local c = cfg()
-    local list = resolve()
+    local list = {}
+    for _, e in ipairs(resolve()) do list[#list + 1] = e end
+    for _, e in ipairs(resolveCustom()) do list[#list + 1] = e end
     if not c.enabled or UnitAffectingCombat("player") or UnitIsDeadOrGhost("player")
        or (IsResting and IsResting()) or fishing() then
         frame:Hide()
@@ -222,25 +261,28 @@ local function refresh()
                 end
             end
             if own or missing > 0 then
-                text = e.label or spellName(id, e.title)
+                text = e.label or (e.custom and e.title) or spellName(id, e.title)
                 if own then text = text .. ": " .. own end
                 if missing > 0 then text = text .. (own and "  " or ": ") .. missing .. " in group" end
             end
         end
         if snoozed(e.key, text) then text = nil end
-        local row = rows[i]
+        local row = getRow(i)
+        row.key = e.key
         if text then
             shown = shown + 1
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(shown - 1) * (c.size + 4))
-            row.icon:SetTexture(spellTexture(id))
+            row.icon:SetTexture(e.icon or spellTexture(id))
             row.text:SetText(text)
             row:Show()
         else
             row:Hide()
         end
     end
-    local row = rows[#list + 1]
+    for i = #list + 2, #rows do rows[i]:Hide() end   -- rows of removed custom reminders
+    local row = getRow(#list + 1)
+    row.key = "food"
     local text, icon = foodRow(c)
     if snoozed("food", text) then text = nil end
     if text then
@@ -256,25 +298,25 @@ local function refresh()
     frame:SetShown(shown > 0)
 end
 
+local function layoutRow(row)
+    local c = cfg()
+    row:SetSize(c.size + 8 + 220, c.size)
+    row.icon:SetSize(c.size, c.size)
+    ns:SetFont(row.text, math.max(10, math.floor(c.size * 0.45)), "OUTLINE")
+end
+
 local function layout()
     local c = cfg()
     frame:SetScale(c.scale * ns.db.general.scale)
     frame:SetSize(c.size + 8 + 220, c.size)
-    for _, row in ipairs(rows) do
-        row:SetSize(c.size + 8 + 220, c.size)
-        row.icon:SetSize(c.size, c.size)
-        ns:SetFont(row.text, math.max(10, math.floor(c.size * 0.45)), "OUTLINE")
-    end
+    for _, row in ipairs(rows) do layoutRow(row) end
 end
 
-local function build()
-    frame = CreateFrame("Frame", "ModernUIBuffReminder", UIParent)
-    frame:SetFrameStrata("HIGH")
-    rows = {}
-    local list = resolve()
-    for i = 1, #list + 1 do   -- + the food row
-        local row = CreateFrame("Frame", nil, frame)
-        row.key = list[i] and list[i].key or "food"
+-- rows are made as needed (class buffs + custom reminders + the food row); refresh sets each row's key
+function getRow(i)
+    local row = rows[i]
+    if not row then
+        row = CreateFrame("Frame", nil, frame)
         row:EnableMouse(true)
         row:SetScript("OnMouseUp", function(self)
             dismissed[self.key] = GetTime() + (cfg().snooze or 5) * 60
@@ -296,7 +338,15 @@ local function build()
         row.text:SetJustifyH("LEFT")
         row:Hide()
         rows[i] = row
+        layoutRow(row)
     end
+    return row
+end
+
+local function build()
+    frame = CreateFrame("Frame", "ModernUIBuffReminder", UIParent)
+    frame:SetFrameStrata("HIGH")
+    rows = {}
     -- own driver: a hidden frame gets no OnUpdate. One scan a second also covers buff expiry and the roster's auras
     CreateFrame("Frame"):SetScript("OnUpdate", function(_, dt)
         elapsed = elapsed + dt
@@ -314,6 +364,7 @@ end
 function R:Apply()
     if not ns.db then return end
     if not frame then build() end
+    customs = nil   -- the list may have changed in the options
     layout()
     ns.Mover:Position("buffreminder")
     refresh()
