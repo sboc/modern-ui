@@ -396,8 +396,28 @@ local function charName()
     return first
 end
 
+-- The realm's name. GetRealmName() reads empty on the Forever client (seen Nov 2026), so fall back to the
+-- realm this character was saved under while it still worked (its profile key). nil when neither is known.
+-- (GetNormalizedRealmName / UnitFullName give the realm without spaces, which matches no saved key.)
+local realm
+function ns:RealmName()
+    local r = GetRealmName and GetRealmName()
+    if type(r) == "string" and r ~= "" then
+        realm = r
+        return r
+    end
+    if realm then return realm end
+    local prefix = charName() .. "-"
+    for key in pairs(ModernUIDB and ModernUIDB.profileKeys or {}) do
+        if key:sub(1, #prefix) == prefix and #key > #prefix then
+            realm = key:sub(#prefix + 1)
+            return realm
+        end
+    end
+end
+
 function ns:CharKey()
-    return charName() .. "-" .. (GetRealmName() or "?")
+    return charName() .. "-" .. (self:RealmName() or "")
 end
 
 -- Name of the profile a character gets of its own: the full character name, without the realm
@@ -405,13 +425,20 @@ function ns:CharProfileName()
     return charName()
 end
 
--- Older builds keyed characters by first name only ("Boogie-Realm"): carry the character's profile over
--- to the full name key. Two characters sharing a first name: the first one to log in keeps it.
+-- Older builds keyed characters by first name only ("Boogie-Realm"), and by "Name-" while the realm read
+-- empty: carry the character's profile over to the full key. Two characters sharing a first name: the first
+-- one to log in keeps it.
 function ns:AdoptOldCharKey()
     local keys = ModernUIDB.profileKeys
-    local key, old = self:CharKey(), (UnitName("player") or "?") .. "-" .. (GetRealmName() or "?")
+    local key = self:CharKey()
+    local old = (UnitName("player") or "?") .. "-" .. (self:RealmName() or "")
     if key ~= old and keys[key] == nil and keys[old] ~= nil then
         keys[key], keys[old] = keys[old], nil
+    end
+    local stray = charName() .. "-"
+    if key ~= stray and keys[stray] ~= nil then
+        if keys[key] == nil then keys[key] = keys[stray] end
+        keys[stray] = nil
     end
 end
 

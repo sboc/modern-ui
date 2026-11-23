@@ -1010,13 +1010,12 @@ end
 
 local function saveInventory()
     if not ModernUIDB then return end
-    local realm = GetRealmName()
-    if type(realm) ~= "string" or realm == "" then return end   -- not known yet / any more (logging out)
+    local realm = ns:RealmName()
     local chars = savedChars()
     local key, name = ns:CharKey(), ns:CharProfileName()
     local s = chars[key] or {}
     chars[key] = s
-    -- older builds also saved while logging out, under "Name-" (no realm): keep its lists where newer
+    -- older builds also saved under "Name-" (realm read empty): keep its lists where newer
     local stray = chars[name .. "-"]
     if stray and stray ~= s then
         for _, view in ipairs({ "bags", "bank" }) do
@@ -1046,9 +1045,11 @@ end
 local viewer
 local viewing = { view = "bank" }   -- which character (key) and which list ("bags" / "bank") the viewer shows
 
--- characters whose items this one can get at: same realm and faction (faction unknown until the character logs in again)
+-- characters whose items this one can get at: same realm (when known) and faction (faction unknown until the
+-- character logs in again)
 local function relevant(s)
-    return s.realm == GetRealmName() and (not s.faction or s.faction == UnitFactionGroup("player"))
+    local realm = ns:RealmName()
+    return (not realm or s.realm == realm) and (not s.faction or s.faction == UnitFactionGroup("player"))
 end
 
 local function charLabel(key, s)
