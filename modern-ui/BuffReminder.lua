@@ -19,9 +19,11 @@ ns.BuffReminder = R
 -- Mark of the Wild). selfOnly: never checked on group members (armors, auras, aspects). label: shown instead of the
 -- spell name when the spells are a choice (any aura does). The first spell id is the key for the on/off setting.
 -- Names come from the spell ids so they follow the client language; fallback only for the first spell.
--- Not here: weapon imbues and poisons (weapon enchants, see the weapon enchant icons) and Battle Shout (2 minutes,
--- cast in combat, so it would show the whole time out of combat), Omen of Clarity (a proc on this client, not a buff
--- you keep up).
+-- weapon: a temporary weapon enchant instead of a buff (Firestone, shaman weapon imbues, poisons), read with
+-- GetWeaponEnchantInfo; "main" = main hand only, "both" = every hand holding a weapon (not a shield / off-hand item).
+-- spells are what tells that you can make it (Create Firestone, the imbue, the Poisons skill); any enchant counts.
+-- Not here: Battle Shout (2 minutes, cast in combat, so it would show the whole time out of combat), Omen of
+-- Clarity (a proc on this client, not a buff you keep up).
 local BUFFS = {
     DRUID = {
         { spells = { 1126 }, also = { 21849 }, fallback = "Mark of the Wild" },
@@ -39,6 +41,10 @@ local BUFFS = {
     },
     WARLOCK = {
         { spells = { 706, 687 }, selfOnly = true, fallback = "Demon Skin" },
+        { spells = { 6366 }, weapon = "main", selfOnly = true, label = "Firestone", fallback = "Create Firestone" },
+    },
+    ROGUE = {
+        { spells = { 2842 }, weapon = "both", selfOnly = true, label = "Poison", fallback = "Poisons" },
     },
     PALADIN = {
         { spells = { 465, 7294, 19746, 19876, 19888, 19891, 20218 }, selfOnly = true, label = "Aura", fallback = "Devotion Aura" },
@@ -51,6 +57,8 @@ local BUFFS = {
     },
     SHAMAN = {
         { spells = { 324 }, selfOnly = true, fallback = "Lightning Shield" },
+        { spells = { 8017, 8024, 8033, 8232 }, weapon = "both", selfOnly = true, label = "Weapon imbue",
+          fallback = "Rockbiter Weapon" },
     },
 }
 
@@ -96,7 +104,7 @@ local function resolve()
             if n then names[n] = true end
         end
         entries[#entries + 1] = { key = b.spells[1], spells = b.spells, names = names, selfOnly = b.selfOnly,
-                                  label = b.label, title = b.label or table.concat(spells, " / ") }
+                                  weapon = b.weapon, label = b.label, title = b.label or table.concat(spells, " / ") }
     end
     return entries
 end
@@ -166,6 +174,35 @@ local function timeLeft(unit, e)
     end
     if not readable then return nil end
     return best
+end
+
+-- true when the slot holds a weapon (a shield or an off-hand item takes no weapon enchant)
+local function holdsWeapon(slot)
+    local id = GetInventoryItemID("player", slot)
+    if not id then return false end
+    local info = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+    if not info then return slot == 16 end
+    local _, _, _, _, _, classID = info(id)
+    return classID == 2   -- Enum.ItemClass.Weapon
+end
+
+-- seconds left of the weapon enchant of the entry, lowest of the hands it covers: 0 = missing, nil = no weapon
+-- to check (or unreadable); second value: "main" / "off", the hand it is about
+local function weaponLeft(e)
+    if not GetWeaponEnchantInfo then return nil end
+    local ok, hasMain, mainMs, _, _, hasOff, offMs = pcall(GetWeaponEnchantInfo)
+    if not ok or ns.IsSecret(hasMain) or ns.IsSecret(hasOff) or ns.IsSecret(mainMs) or ns.IsSecret(offMs) then
+        return nil
+    end
+    local best, hand
+    local function check(slot, has, ms, which)
+        if not holdsWeapon(slot) then return end
+        local left = has and (ms or 0) / 1000 or 0
+        if not best or left < best then best, hand = left, which end
+    end
+    check(16, hasMain, mainMs, "main")
+    if e.weapon == "both" then check(17, hasOff, offMs, "off") end
+    return best, hand
 end
 
 local function fmt(s)
@@ -250,8 +287,12 @@ local function refresh()
         if id then
             local own
             if c.self then
-                local left = timeLeft("player", e)
-                if left and left < math.max(c.threshold, 1) then own = left == 0 and "missing" or fmt(left) end
+                local left, hand
+                if e.weapon then left, hand = weaponLeft(e) else left = timeLeft("player", e) end
+                if left and left < math.max(c.threshold, 1) then
+                    own = left == 0 and "missing" or fmt(left)
+                    if e.weapon == "both" then own = hand .. " hand " .. own end
+                end
             end
             local missing = 0
             for _, u in ipairs(e.selfOnly and NONE or units) do

@@ -122,15 +122,76 @@ local function updateAfk()
 end
 
 ----------------------------------------------------------------------
--- Temporary weapon enchants: main / off hand icon with the time left.
+-- Temporary weapon enchants: main / off hand icon with the time left under it, styled like the player buffs.
+-- Glued to the player frame: right next to its top left corner, growing left (main hand on the left), at the
+-- height of the first aura row, lifted above the focus frame when that sits there (the default layout).
+-- Without Modern UI unit frames: above the default focus frame spot.
 ----------------------------------------------------------------------
 local we   -- holder frame
 local WE_SLOTS = { 16, 17 }
+local WE_GAP = 2       -- between the icons (the player aura rows' gap)
+local WE_MARGIN = 4    -- from the player frame / focus frame
+local weAnchor         -- what the holder is anchored to now (re-anchored only when it changes)
 
 local function timeText(sec)
     if sec >= 3600 then return string.format("%dh", math.floor(sec / 3600 + 0.5)) end
     if sec >= 60 then return string.format("%dm", math.floor(sec / 60 + 0.5)) end
     return string.format("%d", sec)
+end
+
+local function playerFrame()
+    local uf = ns.UnitFrames
+    local p = uf and uf.GetFrame and ns.db.unitframes.enabled and uf:GetFrame("player")
+    return p and p:GetLeft() and p or nil
+end
+
+-- screen rect of a frame (physical pixels), nil while it has none
+local function screenRect(f)
+    local l, r, b, t = f:GetLeft(), f:GetRight(), f:GetBottom(), f:GetTop()
+    if not (l and r and b and t) then return nil end
+    local s = f:GetEffectiveScale()
+    return l * s, r * s, b * s, t * s
+end
+
+-- anchor the holder (n icons wide) to the player frame; the icons follow the player frame's scale
+local function placeEnchants(n)
+    local p = playerFrame()
+    local size = ns.db.unitframes.frames.player.auraSize or 22
+    local width = math.max(1, n) * (size + WE_GAP) - WE_GAP
+    local key, scale, rel, point, x, y
+    if p then
+        scale = p:GetEffectiveScale() / UIParent:GetEffectiveScale()
+        local s = p:GetEffectiveScale()
+        local pl, _, _, pt = screenRect(p)
+        local bottom = pt + WE_MARGIN * s
+        -- the focus frame under the icons' spot (left of the player frame, reaching above it): go on top of it,
+        -- with room for the time text under the icons
+        local uf = ns.UnitFrames
+        local focus = uf.GetFrame and uf:GetFrame("focus")
+        local fl, fr, ft
+        if focus then fl, fr, _, ft = screenRect(focus) end
+        local right, left = pl - WE_MARGIN * s, pl - WE_MARGIN * s - width * s
+        if fl and fl < right and fr > left and ft + WE_MARGIN * s > pt then
+            bottom = math.max(bottom, ft + (WE_MARGIN + math.max(8, math.floor(size * 0.45)) + 1) * s)
+        end
+        rel, point, x, y = p, "TOPLEFT", -WE_MARGIN, (bottom - pt) / s
+    else
+        -- no Modern UI player frame: above the default focus frame spot, at the general scale
+        scale = ns.db.general.scale
+        rel, point, x, y = UIParent, "BOTTOM", -314, 338
+    end
+    key = string.format("%s:%d:%d:%.3f:%.1f", tostring(rel), n, size, scale, y)
+    if key == weAnchor then return end
+    weAnchor = key
+    we:SetScale(scale)
+    we:SetSize(width, size)
+    we:ClearAllPoints()
+    we:SetPoint("BOTTOMRIGHT", rel, point, x, y)
+    for _, icon in ipairs(we.icons) do
+        icon:SetSize(size, size)
+        ns:SetFont(icon.time, math.max(8, math.floor(size * 0.45)), "OUTLINE")
+        ns:SetFont(icon.count, math.max(8, math.floor(size * 0.5)), "OUTLINE")
+    end
 end
 
 local function updateEnchants()
@@ -144,7 +205,10 @@ local function updateEnchants()
             info[2] = hasOff and { ms = offMs, charges = offCharges } or nil
         end
     end
-    local unlocked = ns.Mover and ns.Mover:IsUnlocked()
+    local n = (info[1] and 1 or 0) + (info[2] and 1 or 0)
+    if n == 0 then we:Hide() return end
+    placeEnchants(n)
+    local col = 0
     for i, icon in ipairs(we.icons) do
         local e = info[i]
         if e then
@@ -156,12 +220,15 @@ local function updateEnchants()
                 icon.count:SetText((e.charges and e.charges > 0) and e.charges or "")
             end)
             if not ok then icon.time:SetText(""); icon.count:SetText("") end
+            icon:ClearAllPoints()
+            icon:SetPoint("TOPLEFT", we, "TOPLEFT", col * (icon:GetWidth() + WE_GAP), 0)
+            col = col + 1
             icon:Show()
         else
             icon:Hide()
         end
     end
-    we:SetShown(on and (info[1] or info[2] or unlocked) and true or false)
+    we:Show()
 end
 
 local function buildEnchants()
@@ -170,16 +237,13 @@ local function buildEnchants()
     for i, slot in ipairs(WE_SLOTS) do
         local icon = CreateFrame("Frame", nil, we)
         icon:EnableMouse(true)
-        icon.bg = icon:CreateTexture(nil, "BACKGROUND")
-        icon.bg:SetAllPoints()
-        icon.bg:SetColorTexture(0.04, 0.04, 0.05, 0.85)
         icon.tex = icon:CreateTexture(nil, "ARTWORK")
         icon.tex:SetPoint("TOPLEFT", 1, -1)
         icon.tex:SetPoint("BOTTOMRIGHT", -1, 1)
         icon.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        icon.borders = UI.AddBorder(icon, 1, 0.55, 0.25, 0.85, 1, "OVERLAY")
+        UI.AddBorder(icon, 1, 0, 0, 0, 1, "OVERLAY")
         icon.time = icon:CreateFontString(nil, "OVERLAY")
-        icon.time:SetPoint("CENTER", 0, 0)
+        icon.time:SetPoint("TOP", icon, "BOTTOM", 0, -1)
         icon.count = icon:CreateFontString(nil, "OVERLAY")
         icon.count:SetPoint("BOTTOMRIGHT", 1, 0)
         icon:SetScript("OnEnter", function(self)
@@ -199,7 +263,6 @@ local function buildEnchants()
         acc = 0
         updateEnchants()
     end)
-    ns.Mover:Register("weaponenchant", we, "Weapon Enchants")
 end
 
 local function layoutEnchants()
@@ -210,17 +273,7 @@ local function layoutEnchants()
     end
     if not GetWeaponEnchantInfo then return end
     if not we then buildEnchants() end
-    local size = c.size
-    we:SetScale(ns.db.general.scale)
-    we:SetSize(size * 2 + 2, size)
-    for i, icon in ipairs(we.icons) do
-        icon:SetSize(size, size)
-        icon:ClearAllPoints()
-        icon:SetPoint("LEFT", we, "LEFT", (i - 1) * (size + 2), 0)
-        ns:SetFont(icon.time, math.max(8, math.floor(size * 0.45)), "OUTLINE")
-        ns:SetFont(icon.count, math.max(7, math.floor(size * 0.38)), "OUTLINE")
-    end
-    ns.Mover:Position("weaponenchant")
+    weAnchor = nil   -- sizes / scale may have changed
     updateEnchants()
 end
 

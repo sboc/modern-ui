@@ -194,7 +194,7 @@ ns.defaults = {
                   class = true, seen = {} },   -- class: ammunition / reagents; seen: reagent label -> carried at least once
     iteminfo = { enabled = true, character = true, bags = true, sets = true, newGlow = true },
     totems = { enabled = true, size = 32, spacing = 3, scale = 1, last = {} },   -- last: slot -> spell the slot's button casts
-    weaponenchants = { enabled = true, size = 24 },
+    weaponenchants = { enabled = true },   -- icons next to the player frame, player aura size
     buffreminder = { enabled = true, self = true, party = false, raid = false, threshold = 120, size = 32, scale = 1,
                      food = true, snooze = 5,   -- snooze: minutes a clicked-away reminder stays hidden
                      off = {},      -- off[first spell id] = true: that buff is not reminded of
@@ -311,7 +311,6 @@ ns.defaults.positions = {
     datatexts = pos("TOP", 0, -4),
     totembar = pos("BOTTOM", 0, 6),          -- the pet / stance bar spot (shamans have neither)
     buffreminder = pos("CENTER", 0, 200),
-    weaponenchant = pos("BOTTOM", -350, 338),   -- on top of the focus frame
     lootroll = pos("TOP", 0, -160),
 }
 

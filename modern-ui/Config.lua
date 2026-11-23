@@ -646,8 +646,7 @@ local function miscOptions()
         Header("Auto thanks"),
         Check("misc.autoThank", "Thank players outside your group who buff you in the open world (/thank)"),
         Header("Weapon enchants"),
-        Check("weaponenchants.enabled", "Show temporary weapon enchants (poisons, stones, weapon buffs) with their time left"),
-        Range("weaponenchants.size", "Icon size", 16, 48, 1, px),
+        Check("weaponenchants.enabled", "Show temporary weapon enchants (poisons, stones, weapon buffs) with their time left, next to the player buffs (same icon size)"),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
     }
 end
