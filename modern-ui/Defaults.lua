@@ -89,6 +89,7 @@ ns.defaults = {
         ammoWarn = 200,        -- ammunition count turns red below this (0 = never)
         lowCount = 5,          -- item / reagent counts on the bars turn red at or below this (0 = never)
         autoRank = false,      -- classic: replace spells on the bars with their highest known rank
+        rankKeep = {},         -- spell names (lower case) auto rank leaves alone: the rank you put on the bars stays
         bars = {
             [1] = merge(barBase),
             [2] = merge(barBase),
@@ -132,7 +133,7 @@ ns.defaults = {
         custom = true,   -- our own chat window (Blizzard's ChatFrame1 keeps routing the messages invisibly)
         tabs = { say = true, group = true, guild = true, whisper = true, channel = true, system = true },
     },
-    tooltip = { enabled = true, skin = true, bgAlpha = 0.92, anchor = true, gap = 6, classBar = true, className = true, perMana = true, bankReagents = true, fontSize = 0 },
+    tooltip = { enabled = true, skin = true, bgAlpha = 0.92, anchor = true, gap = 6, classBar = true, className = true, perMana = true, spellID = true, bankReagents = true, fontSize = 0 },
     nameplates = {
         enabled = true, skinFriendly = true, width = 190, height = 18, castHeight = 13, offsetY = 0,
         showHealthText = true, showLevel = true, showCast = true, showDebuffs = true, onlyMyDebuffs = false, showBuffs = true, debuffSize = 22,

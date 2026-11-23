@@ -235,13 +235,15 @@ local function manaCost(spellID)
     end
 end
 
+-- spell tooltips (spellbook, action bars, ...): damage / healing per mana, and the spell ID (for the options that
+-- take one: custom buff reminders, kept spell ranks)
 local function onSpell(tooltip, data)
     local c = ns.db and cfg()
-    if not (c and c.enabled and c.perMana) or type(data) ~= "table" then return end
+    if not (c and c.enabled and (c.perMana or c.spellID)) or type(data) ~= "table" then return end
     if tooltip.IsForbidden and tooltip:IsForbidden() then return end
-    pcall(function()
-        local id = data.id
-        if type(id) ~= "number" or ns.IsSecret(id) then return end
+    local id = data.id
+    if type(id) ~= "number" or ns.IsSecret(id) then return end
+    if c.perMana then pcall(function()
         local cost = manaCost(id)
         if not cost then return end
         local getDesc = (C_Spell and C_Spell.GetSpellDescription) or _G.GetSpellDescription
@@ -254,8 +256,9 @@ local function onSpell(tooltip, data)
         if #parts == 0 then return end
         local a = UI.colors.accent
         tooltip:AddLine(table.concat(parts, "   "), a[1], a[2], a[3])
-        tooltip:Show()
-    end)
+    end) end
+    if c.spellID then pcall(tooltip.AddLine, tooltip, "Spell ID: " .. id, 0.6, 0.6, 0.65) end
+    pcall(tooltip.Show, tooltip)
 end
 
 -- Crafting windows: an item shown from one (reagents, the made item) gets a line per character whose saved bank

@@ -995,6 +995,16 @@ local function rankOf(id)
     return sub and tonumber(sub:match("(%d+)"))
 end
 
+-- the spell name for the "keep this rank" list: spell ID or name -> the client's name (any rank); nil = unknown ID
+function AB:SpellName(x)
+    return (spellInfoByIdOrName(tonumber(x) or x))
+end
+
+local function kept(name)
+    local keep = ns.db.actionbars.rankKeep
+    return keep and keep[name:lower()]
+end
+
 local retryQueued = false
 local function upgradeRanks()
     if not ns.db or not ns.db.actionbars.autoRank then return end
@@ -1013,7 +1023,7 @@ local function upgradeRanks()
         local kind, id = GetActionInfo(slot)
         if kind == "spell" and id then
             local name = spellInfoByIdOrName(id)
-            if name then
+            if name and not kept(name) then
                 -- a name lookup resolves to the highest known rank
                 local _, best = spellInfoByIdOrName(name)
                 local cur, top = rankOf(id), best and rankOf(best)

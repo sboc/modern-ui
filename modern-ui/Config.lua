@@ -140,7 +140,7 @@ local function profileOptions()
 end
 
 local function actionBarGeneral()
-    return {
+    local o = {
         Header("Action Bars"),
         Check("actionbars.enabled", "Replace the Blizzard action bars"),
         Text("Turning this off needs a /reload to bring the Blizzard bars back."),
@@ -157,6 +157,34 @@ local function actionBarGeneral()
         Range("actionbars.lowCount", "Item / reagent counts turn red at or below (0 = off)", 0, 20, 1),
         Check("actionbars.autoRank", "Auto-replace spells with their highest known rank"),
         Text("Classic only. When you learn a new rank, every lower rank on your bars is swapped for it (runs out of combat)."),
+    }
+    -- spells auto rank leaves alone (a low rank kept on purpose: cheap heals, Frostbolt rank 1 to slow, ...)
+    local function changed() Config:RebuildPage("abgeneral") end
+    o[#o + 1] = Text("Keep these spells at the rank you put on the bars (every rank of the spell):")
+    o[#o + 1] = Button("Keep a spell's rank", function()
+        UI.Prompt("Spell ID or spell name", "", function(text)
+            text = strtrim(text or "")
+            if text == "" then return end
+            local name = ns.ActionBars:SpellName(text)
+            if not name then
+                if tonumber(text) then ns:Print("Auto rank: no spell with the ID " .. text .. ".") return end
+                name = text   -- a spell you do not know (yet): kept by the name as typed
+            end
+            ns.db.actionbars.rankKeep[name:lower()] = name
+            changed()
+        end)
+    end)
+    local names = {}
+    for key, name in pairs(ns.db.actionbars.rankKeep) do names[#names + 1] = { key = key, name = name } end
+    table.sort(names, function(a, b) return a.key < b.key end)
+    for _, e in ipairs(names) do
+        o[#o + 1] = Button("Remove " .. e.name, function()
+            ns.db.actionbars.rankKeep[e.key] = nil
+            ns.ActionBars:UpgradeRanks()
+            changed()
+        end, 300)
+    end
+    for _, v in ipairs({
         Header("Key bindings"),
         Text("Hover a button and press a key, a mouse button or the wheel to bind it; Escape clears it. Also /mui kb. Out of combat only."),
         Button("Bind keys by hovering", function() ns.KeyBind:Start() end),
@@ -164,7 +192,8 @@ local function actionBarGeneral()
         Text("Use 'Unlock frames' on the General page (or /mui unlock) to drag bars into place."),
         Button("Unlock frames (move)", function() ns.Mover:Unlock() end),
         Text("Key bindings, flyouts, cooldowns and drag-and-drop still work exactly as before - Modern UI only moves and re-skins the Blizzard buttons."),
-    }
+    }) do o[#o + 1] = v end
+    return o
 end
 
 local function barOptions(def, base)
@@ -449,6 +478,7 @@ local function tooltipOptions()
         Check("tooltip.className", "Class / reaction colored name line on unit tooltips"),
         Check("tooltip.classBar", "Class / reaction colored health bar on unit tooltips"),
         Check("tooltip.perMana", "Damage / healing per mana (DPM / HPM) on spell tooltips"),
+        Check("tooltip.spellID", "Spell ID on spell tooltips (spellbook, action bars)"),
         Check("tooltip.bankReagents", "Crafting windows: items show how many each character has in the bank (as of their last banker visit)"),
         Range("tooltip.bgAlpha", "Background opacity", 0.3, 1, 0.02, pct),
         Range("tooltip.fontSize", "Font size (0 = leave as is)", 0, 24, 1),

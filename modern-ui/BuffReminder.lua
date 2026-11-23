@@ -41,7 +41,8 @@ local BUFFS = {
     },
     WARLOCK = {
         { spells = { 706, 687 }, selfOnly = true, fallback = "Demon Skin" },
-        { spells = { 6366 }, weapon = "main", selfOnly = true, label = "Firestone", fallback = "Create Firestone" },
+        { spells = { 6366, 2362 }, weapon = "main", selfOnly = true, label = "Firestone / Spellstone",
+          fallback = "Create Firestone" },
     },
     ROGUE = {
         { spells = { 2842 }, weapon = "both", selfOnly = true, label = "Poison", fallback = "Poisons" },
