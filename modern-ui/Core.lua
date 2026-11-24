@@ -490,7 +490,7 @@ function ns:CheckSetup()
     C_Timer.After(1.5, attempt)
 end
 
-ns.DB_VERSION = 46
+ns.DB_VERSION = 47
 
 -- Settings that changed meaning between releases.
 function ns:Migrate()
@@ -577,6 +577,15 @@ function ns:Migrate()
         if type(ps) == "table" and at(ps.swingbar, 293) then
             ps.swingbar = ns.CopyTable(ns.defaults.positions.swingbar)
             if at(ps.cdm_essential, 240) then ps.cdm_essential = ns.CopyTable(ns.defaults.positions.cdm_essential) end
+        end
+    end
+    if v < 47 then
+        -- action bar 5 is on by default now, attached to the right of the left chat window like the
+        -- micro menu on the right one. Only profiles still on the old default (off, one column) change.
+        local b = db.actionbars and db.actionbars.bars and db.actionbars.bars[5]
+        if type(b) == "table" and not b.enabled and b.perRow == 1 then
+            local d = ns.defaults.actionbars.bars[5]
+            for _, k in ipairs({ "enabled", "perRow", "spacing", "fade", "fadeAlpha", "attach" }) do b[k] = d[k] end
         end
     end
     db.dbVersion = ns.DB_VERSION

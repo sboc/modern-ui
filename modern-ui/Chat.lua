@@ -903,12 +903,17 @@ local function placeCustom()
         step("combatlog", placeCombatLog2)
         if not c.combatLog and rightTab == "combat" then rightTab = "system" end
         step("right-refresh", function() selectRight(rightTab) end)
-        -- the micro menu / bag bar hang off the right window: let them re-attach
+        -- the micro menu / bag bar hang off the right window, action bar 5 off the left one: let them re-attach
         step("menus-attach", function()
             if ns.MenuBars and ns.MenuBars.RequestLayout then ns.MenuBars:RequestLayout() end
+            if ns.ActionBars and ns.ActionBars.RequestLayout then ns.ActionBars:RequestLayout() end
             if ns.Tracker and ns.Tracker.RequestPlace then ns.Tracker:RequestPlace() end
         end)
     end)
+end
+
+function CH:GetLeftPanel()
+    if panel and panel:IsShown() then return panel end
 end
 
 function CH:GetRightPanel()

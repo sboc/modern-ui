@@ -96,7 +96,9 @@ ns.defaults = {
             -- bars 1-4 are always shown. 3 / 4 are smaller (34): 2 columns x 6 rows (71 x 219), flanking the stack, same height as the minimap / damage meter
             [3] = merge(barBase, { perRow = 2, size = 34, spacing = 3 }),
             [4] = merge(barBase, { perRow = 2, size = 34, spacing = 3 }),
-            [5] = merge(barBase, { enabled = false, perRow = 1 }),
+            -- bar 5 mirrors the micro menu: 2 columns x 6 rows attached to the right of the left chat window,
+            -- square buttons filling its height, hidden until moused over
+            [5] = merge(barBase, { perRow = 2, spacing = 2, fade = true, attach = true }),
             [6] = merge(barBase, { enabled = false }),
             [7] = merge(barBase, { enabled = false }),
             [8] = merge(barBase, { enabled = false }),
@@ -188,6 +190,7 @@ ns.defaults = {
              autoQuest = false,      -- accept / turn in quests (hold Shift to skip)
              acceptSummon = false, acceptRes = false, declineDuels = false,
              acceptInvites = false,  -- group invites from friends and guild members
+             autoReplaceEnchant = false,   -- accept the "replace the existing enchant?" popup when enchanting
     },
     datatexts = { enabled = true, scale = 1, alpha = 1, fontSize = 0, background = true,
                   width = 620,   -- fixed strip width (the action bar stack's); 0 = as wide as its texts

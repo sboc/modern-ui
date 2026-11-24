@@ -22,7 +22,7 @@ local DEFS = {
     { id = "bar4", bind = "MULTIACTIONBAR3BUTTON", dbKey = 4, prefix = "MultiBarRightButton", count = 12, label = "Action Bar 4",
       containers = { "MultiBarRight" } },
     { id = "bar5", bind = "MULTIACTIONBAR4BUTTON", dbKey = 5, prefix = "MultiBarLeftButton", count = 12, label = "Action Bar 5",
-      containers = { "MultiBarLeft" } },
+      containers = { "MultiBarLeft" }, chatAttach = true },
     { id = "bar6", bind = "MULTIACTIONBAR5BUTTON", dbKey = 6, prefix = "MultiBar5Button", count = 12, label = "Action Bar 6",
       containers = { "MultiBar5" } },
     { id = "bar7", bind = "MULTIACTIONBAR6BUTTON", dbKey = 7, prefix = "MultiBar6Button", count = 12, label = "Action Bar 7",
@@ -459,6 +459,14 @@ local function layoutBar(def)
     local perRow = math.max(1, math.min(sized, cfg.perRow))
     local rows = math.ceil(sized / perRow)
     local size, gap = cfg.size, cfg.spacing
+    -- attached to the left chat window (mirror of the micro menu on the right one): square buttons sized
+    -- so the rows fill exactly its height
+    local chat = ns.Chat
+    local panel = cfg.attach and cfg.enabled and chat and chat.GetLeftPanel and chat:GetLeftPanel()
+    if panel then
+        local avail = panel:GetHeight() * panel:GetEffectiveScale() / bar:GetEffectiveScale()
+        size = math.max(14, math.floor((avail - (rows - 1) * gap) / rows))
+    end
     bar:SetSize(perRow * size + (perRow - 1) * gap, rows * size + (rows - 1) * gap)
 
     for i = 1, def.count do
@@ -517,7 +525,16 @@ local function layoutBar(def)
     local wanted = cfg.enabled and (not def.centered or bar.molActive or ns.Mover:IsUnlocked())
     if wanted then bar:Show() else bar:Hide() end
     setupPaging(bar, def, cfg.enabled and cfg.paging)
-    ns.Mover:Position(def.id)
+    -- attached: bottom aligned, right of the left chat window. Placed by screen coordinates, not anchored
+    -- to the panel: a secure bar anchored to it would make the chat window protected in combat.
+    local right, bottom = panel and panel:GetRight(), panel and panel:GetBottom()
+    if right and bottom then
+        local k = panel:GetEffectiveScale() / bar:GetEffectiveScale()
+        bar:ClearAllPoints()
+        bar:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", right * k + 4, bottom * k)
+    else
+        ns.Mover:Position(def.id)
+    end
 end
 
 local layoutQueued = false

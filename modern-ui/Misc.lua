@@ -360,6 +360,22 @@ local function onSummon()
         plain(where) and where and (" to " .. where) or ""))
 end
 
+-- Enchanting an item that already has an enchant: the "replace it?" popup is accepted for you. Its Yes button
+-- is clicked, so Blizzard's own accept code runs with the popup's data (the profession window's popup crafts
+-- through it; the old ReplaceEnchant() does not exist on every client). Covers the profession window, the
+-- classic enchant flow and the trade window.
+local ENCHANT_POPUPS = { REPLACE_TRADESKILL_ENCHANT = true, REPLACE_ENCHANT = true, TRADE_REPLACE_ENCHANT = true }
+
+local function onPopupShown(which, existing, replacement)
+    if not (ENCHANT_POPUPS[which] and ns.db and cfg().autoReplaceEnchant) then return end
+    local d = StaticPopup_FindVisible and StaticPopup_FindVisible(which)
+    local yes = d and (d.button1 or (d.GetButton1 and d:GetButton1()))
+    if not (yes and yes.Click) then return end
+    yes:Click()
+    ns:Print(string.format("Replaced %s with %s.", plain(existing) and existing or "the enchant",
+        plain(replacement) and replacement or "the new one"))
+end
+
 -- a resurrection from someone who is still fighting (a battle res) is left for you to take
 local function onResurrect(_, who)
     if not cfg().acceptRes then return end
@@ -534,6 +550,7 @@ function M:Init()
     ns:On("CONFIRM_SUMMON", onSummon)
     ns:On("RESURRECT_REQUEST", onResurrect)
     ns:On("DUEL_REQUESTED", onDuel)
+    if StaticPopup_Show then hooksecurefunc("StaticPopup_Show", onPopupShown) end
     ns:On("PARTY_INVITE_REQUEST", onInvite)
     ns:On("GOSSIP_SHOW", onGossip)
     ns:On("QUEST_GREETING", onGreeting)

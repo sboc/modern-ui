@@ -213,6 +213,10 @@ local function barOptions(def, base)
         Range(base .. ".alpha", "Opacity", 0.1, 1, 0.05, pct),
     }
     for _, r in ipairs(rest) do o[#o + 1] = r end
+    if def.chatAttach then
+        o[#o + 1] = Check(base .. ".attach", "Attach to the right of the left chat window (bottom aligned)")
+        o[#o + 1] = Text("While attached, buttons are square and sized to fill the chat window's height (the button size option is ignored).")
+    end
     if not core then
         o[#o + 1] = Check(base .. ".fade", "Hide until moused over")
         o[#o + 1] = Range(base .. ".fadeAlpha", "Opacity while hidden", 0, 1, 0.05, pct)
@@ -667,6 +671,9 @@ local function miscOptions()
         Header("Quests"),
         Check("misc.autoQuest", "Accept quests and turn in finished ones automatically"),
         Text("Hold Shift while talking to the NPC to skip. Rewards with a choice, quests that cost gold and repeatable hand-ins are left to you."),
+        Header("Enchanting"),
+        Check("misc.autoReplaceEnchant", "Replace an existing enchant without asking (also in the trade window)"),
+        Text("The old enchant is gone for good: enchanting the wrong item overwrites it with no question."),
         Header("Social"),
         Check("misc.acceptSummon", "Accept summons (out of combat)"),
         Check("misc.acceptRes", "Accept resurrections (not from someone still in combat)"),
