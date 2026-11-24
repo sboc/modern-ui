@@ -480,6 +480,7 @@ local function tooltipOptions()
         Check("tooltip.perMana", "Damage / healing per mana (DPM / HPM) on spell tooltips"),
         Check("tooltip.spellID", "Spell ID on spell tooltips (spellbook, action bars)"),
         Check("tooltip.bankReagents", "Crafting windows: items show how many each character has in the bank (as of their last banker visit)"),
+        Check("tooltip.bankAlways", "Bank counts on every item tooltip (bags, links, loot), not only in crafting windows"),
         Range("tooltip.bgAlpha", "Background opacity", 0.3, 1, 0.02, pct),
         Range("tooltip.fontSize", "Font size (0 = leave as is)", 0, 24, 1),
         Header("Position"),

@@ -1046,10 +1046,11 @@ local viewer
 local viewing = { view = "bank" }   -- which character (key) and which list ("bags" / "bank") the viewer shows
 
 -- characters whose items this one can get at: same realm (when known) and faction (faction unknown until the
--- character logs in again)
-local function relevant(s)
-    local realm = ns:RealmName()
-    return (not realm or s.realm == realm) and (not s.faction or s.faction == UnitFactionGroup("player"))
+-- character logs in again). strict: realm and faction must both be known and match (tooltip counts).
+local function relevant(s, strict)
+    local realm, faction = ns:RealmName(), UnitFactionGroup("player")
+    if strict then return realm ~= nil and s.realm == realm and faction ~= nil and s.faction == faction end
+    return (not realm or s.realm == realm) and (not s.faction or s.faction == faction)
 end
 
 local function charLabel(key, s)
@@ -1058,14 +1059,14 @@ local function charLabel(key, s)
     return col and string.format("|cff%02x%02x%02x%s|r", col.r * 255, col.g * 255, col.b * 255, label) or label
 end
 
--- every saved bank (of this realm and faction) holding an item: { { label = class colored character name, count = n }, ... }
+-- every saved bank (of this realm and faction, both known) holding an item: { { label = class colored character name, count = n }, ... }
 -- sorted by name
 function CB:BankCounts(itemID)
     local out = {}
     if not (ModernUIDB and ModernUIDB.inventory) then return out end
     for key, s in pairs(ModernUIDB.inventory) do
         local n = 0
-        for _, it in ipairs(relevant(s) and s.bank and s.bank.items or {}) do
+        for _, it in ipairs(relevant(s, true) and s.bank and s.bank.items or {}) do
             if it.id == itemID then n = n + (it.count or 1) end
         end
         if n > 0 then out[#out + 1] = { label = charLabel(key, s), count = n, sort = (s.name or key):lower() } end

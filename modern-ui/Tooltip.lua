@@ -263,9 +263,11 @@ end
 
 -- Crafting windows: an item shown from one (reagents, the made item) gets a line per character whose saved bank
 -- holds some, read from the copies the bags module keeps (each bank as of that character's last banker visit).
--- Reached two ways, since a client may not route the crafting tooltips through TooltipDataProcessor: the item
--- post-call (owner inside a crafting window) and hooks on the crafting Set* methods. molBankDone keeps it to one
--- block per tooltip content; it is cleared with the tooltip.
+-- With bankAlways every item tooltip gets it, not only those from a crafting window.
+-- Reached three ways, since a client may not route the crafting tooltips through TooltipDataProcessor: the item
+-- post-call (owner inside a crafting window, or any owner with bankAlways), OnTooltipSetItem where the client still
+-- has it, and hooks on the crafting Set* methods. molBankDone keeps it to one block per tooltip content; it is
+-- cleared with the tooltip.
 local CRAFT_FRAMES = { TradeSkillFrame = true, CraftFrame = true, ProfessionsFrame = true, ClassicProfessionFrame = true }
 
 local function inCraftWindow(tooltip)
@@ -300,13 +302,15 @@ local function addBankCounts(tooltip)
 end
 
 local function onCraftItem(tooltip)
-    if tooltip == _G.GameTooltip and not tooltip.molBankDone and inCraftWindow(tooltip) then addBankCounts(tooltip) end
+    if tooltip ~= _G.GameTooltip or tooltip.molBankDone then return end
+    if (ns.db and cfg().bankAlways) or inCraftWindow(tooltip) then addBankCounts(tooltip) end
 end
 
 local function hookCraftTooltips()
     local tt = _G.GameTooltip
     if not tt then return end
     pcall(tt.HookScript, tt, "OnTooltipCleared", function(self) self.molBankDone = nil end)
+    if tt.HasScript and tt:HasScript("OnTooltipSetItem") then pcall(tt.HookScript, tt, "OnTooltipSetItem", onCraftItem) end
     for _, m in ipairs({ "SetTradeSkillItem", "SetCraftItem", "SetRecipeReagentItem" }) do
         if type(tt[m]) == "function" then pcall(hooksecurefunc, tt, m, addBankCounts) end
     end
