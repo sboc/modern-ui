@@ -26,6 +26,8 @@ ns.BuffReminder = R
 -- whatever the party / raid settings; items: the items that place it, their cooldown runs as long as the buff, so
 -- while it runs a buff that cannot be seen (target out of sight, auras unreadable) is not reported as missing.
 -- bagItem: an item to carry instead of a buff (Healthstone): missing while none of the items is in your bags.
+-- bagEach: bagItem[i] is made by spells[i] and each one you can make is carried (mana gems): missing while one of
+-- them is not in your bags.
 -- Not here: Battle Shout (2 minutes, cast in combat, so it would show the whole time out of combat), Omen of
 -- Clarity (a proc on this client, not a buff you keep up).
 local BUFFS = {
@@ -42,6 +44,8 @@ local BUFFS = {
     MAGE = {
         { spells = { 1459 }, also = { 23028 }, fallback = "Arcane Intellect" },
         { spells = { 6117, 7302, 168 }, selfOnly = true, label = "Armor", fallback = "Frost Armor" },
+        { spells = { 759, 3552, 10053, 10054, 27101 }, bagItem = { 5514, 5513, 8007, 8008, 22044 }, bagEach = true,
+          selfOnly = true, label = "Mana gem", fallback = "Conjure Mana Agate" },
     },
     WARLOCK = {
         { spells = { 706, 687 }, selfOnly = true, fallback = "Demon Skin" },
@@ -117,7 +121,7 @@ local function resolve()
         end
         entries[#entries + 1] = { key = b.spells[1], spells = b.spells, names = names, selfOnly = b.selfOnly,
                                   weapon = b.weapon, anyone = b.anyone, items = b.items,
-                                  bagItem = b.bagItem, label = b.label, title = b.label or table.concat(spells, " / ") }
+                                  bagItem = b.bagItem, bagEach = b.bagEach, label = b.label, title = b.label or table.concat(spells, " / ") }
     end
     return entries
 end
@@ -249,13 +253,23 @@ local function anyoneLeft(e)
     return best
 end
 
--- 0 when none of the items is in your bags, else math.huge (an item does not run out)
+-- 0 when the item is missing from your bags (bagEach: one you can make, else all of them), else math.huge (an
+-- item does not run out)
 local function bagLeft(e)
     local get = (C_Item and C_Item.GetItemCount) or GetItemCount
     if not get then return nil end
-    for _, id in ipairs(e.bagItem) do
+    local function carried(id)
         local n = get(id)
-        if n and not ns.IsSecret(n) and n > 0 then return math.huge end
+        return n and not ns.IsSecret(n) and n > 0
+    end
+    if e.bagEach then
+        for i, id in ipairs(e.bagItem) do
+            if known(e.spells[i]) and not carried(id) then return 0 end
+        end
+        return math.huge
+    end
+    for _, id in ipairs(e.bagItem) do
+        if carried(id) then return math.huge end
     end
     return 0
 end
