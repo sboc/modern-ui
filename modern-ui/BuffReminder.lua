@@ -22,6 +22,10 @@ ns.BuffReminder = R
 -- weapon: a temporary weapon enchant instead of a buff (Firestone, shaman weapon imbues, poisons), read with
 -- GetWeaponEnchantInfo; "main" = main hand only, "both" = every hand holding a weapon (not a shield / off-hand item).
 -- spells are what tells that you can make it (Create Firestone, the imbue, the Poisons skill); any enchant counts.
+-- anyone: one target at a time (Soulstone): present when your own cast of it is on you or any group member,
+-- whatever the party / raid settings; items: the items that place it, their cooldown runs as long as the buff, so
+-- while it runs a buff that cannot be seen (target out of sight, auras unreadable) is not reported as missing.
+-- bagItem: an item to carry instead of a buff (Healthstone): missing while none of the items is in your bags.
 -- Not here: Battle Shout (2 minutes, cast in combat, so it would show the whole time out of combat), Omen of
 -- Clarity (a proc on this client, not a buff you keep up).
 local BUFFS = {
@@ -43,6 +47,13 @@ local BUFFS = {
         { spells = { 706, 687 }, selfOnly = true, fallback = "Demon Skin" },
         { spells = { 6366, 2362 }, weapon = "main", selfOnly = true, label = "Firestone / Spellstone",
           fallback = "Create Firestone" },
+        { spells = { 693, 20752, 20755, 20756, 20757, 27238 }, also = { 20707, 20762, 20763, 20764, 20765, 27239 },
+          items = { 5232, 16892, 16893, 16895, 16896, 22116 }, anyone = true, selfOnly = true, label = "Soulstone",
+          fallback = "Create Soulstone" },
+        { spells = { 6201, 6202, 5699, 11729, 11730, 27230 }, selfOnly = true, label = "Healthstone",
+          bagItem = { 5512, 19004, 19005, 5511, 19006, 19007, 5509, 19008, 19009, 5510, 19010, 19011,
+                      9421, 19012, 19013, 22103, 22104, 22105 },   -- every rank, with the Improved Healthstone ones
+          fallback = "Create Healthstone" },
     },
     ROGUE = {
         { spells = { 2842 }, weapon = "both", selfOnly = true, label = "Poison", fallback = "Poisons" },
@@ -105,7 +116,8 @@ local function resolve()
             if n then names[n] = true end
         end
         entries[#entries + 1] = { key = b.spells[1], spells = b.spells, names = names, selfOnly = b.selfOnly,
-                                  weapon = b.weapon, label = b.label, title = b.label or table.concat(spells, " / ") }
+                                  weapon = b.weapon, anyone = b.anyone, items = b.items,
+                                  bagItem = b.bagItem, label = b.label, title = b.label or table.concat(spells, " / ") }
     end
     return entries
 end
@@ -157,7 +169,7 @@ end
 
 -- seconds left of the buff on the unit: 0 = missing, math.huge = no expiry, nil = auras of the unit unreadable.
 -- A group member without any aura counts as unreadable; your own auras are readable out of combat (the only time
--- this runs), so no aura at all on you means missing.
+-- this runs), so no aura at all on you means missing. Entries for one target (anyone) only count your own cast.
 local function timeLeft(unit, e)
     local now, readable, best = GetTime(), unit == "player", 0
     for i = 1, 40 do
@@ -166,7 +178,8 @@ local function timeLeft(unit, e)
         local name = a.name
         if ns.IsSecret(name) or type(name) ~= "string" then return nil end
         readable = true
-        if e.names[name] then
+        local src = e.anyone and a.sourceUnit
+        if e.names[name] and not (src and not ns.IsSecret(src) and not UnitIsUnit(src, "player")) then
             local exp, dur = a.expirationTime, a.duration
             if ns.IsSecret(exp) or ns.IsSecret(dur) then return nil end
             local left = (not exp or exp == 0 or not dur or dur == 0) and math.huge or exp - now
@@ -204,6 +217,47 @@ local function weaponLeft(e)
     check(16, hasMain, mainMs, "main")
     if e.weapon == "both" then check(17, hasOff, offMs, "off") end
     return best, hand
+end
+
+-- seconds left of the longest item cooldown of the list (0 = none running); the global cooldown is not one
+local function itemCooldown(items)
+    local get = (C_Container and C_Container.GetItemCooldown) or GetItemCooldown
+    local now, left = GetTime(), 0
+    for _, id in ipairs(get and items or NONE) do
+        local ok, start, dur = pcall(get, id)
+        if ok and not ns.IsSecret(start) and not ns.IsSecret(dur) and start and dur and start > 0 and dur > 1.5 then
+            left = math.max(left, start + dur - now)
+        end
+    end
+    return left
+end
+
+-- seconds left of your buff of a one-target entry on you or any group member: 0 = on nobody, nil = cannot tell
+-- (not seen anywhere, but the item cooldown runs: it is out on someone out of sight, or was used up)
+local function anyoneLeft(e)
+    local best = timeLeft("player", e) or 0
+    local prefix = IsInRaid() and "raid" or "party"
+    local n = IsInRaid() and GetNumGroupMembers() or GetNumSubgroupMembers()
+    for i = 1, n do
+        local u = prefix .. i
+        if UnitExists(u) and not UnitIsUnit(u, "player") then
+            local left = timeLeft(u, e)
+            if left and left > best then best = left end
+        end
+    end
+    if best == 0 and itemCooldown(e.items) > 0 then return nil end
+    return best
+end
+
+-- 0 when none of the items is in your bags, else math.huge (an item does not run out)
+local function bagLeft(e)
+    local get = (C_Item and C_Item.GetItemCount) or GetItemCount
+    if not get then return nil end
+    for _, id in ipairs(e.bagItem) do
+        local n = get(id)
+        if n and not ns.IsSecret(n) and n > 0 then return math.huge end
+    end
+    return 0
 end
 
 local function fmt(s)
@@ -286,14 +340,16 @@ local function refresh()
         local text
         local id = not (c.off and c.off[e.key]) and knownSpell(e)
         if id then
-            local own
-            if c.self then
-                local left, hand
-                if e.weapon then left, hand = weaponLeft(e) else left = timeLeft("player", e) end
-                if left and left < math.max(c.threshold, 1) then
-                    own = left == 0 and "missing" or fmt(left)
-                    if e.weapon == "both" then own = hand .. " hand " .. own end
-                end
+            local own, left, hand
+            if e.anyone then left = anyoneLeft(e)
+            elseif c.self then
+                if e.weapon then left, hand = weaponLeft(e)
+                elseif e.bagItem then left = bagLeft(e)
+                else left = timeLeft("player", e) end
+            end
+            if left and left < math.max(c.threshold, 1) then
+                own = left == 0 and "missing" or fmt(left)
+                if e.weapon == "both" then own = hand .. " hand " .. own end
             end
             local missing = 0
             for _, u in ipairs(e.selfOnly and NONE or units) do
