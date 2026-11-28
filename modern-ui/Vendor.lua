@@ -160,7 +160,7 @@ local function sellPrice(info)
     return (ok and type(price) == "number") and price or 0
 end
 
--- every poor quality slot that actually has a vendor value
+-- every poor quality or marked-as-trash slot that actually has a vendor value
 local function collect()
     local list = {}
     local poor = (Enum and Enum.ItemQuality and Enum.ItemQuality.Poor) or 0
@@ -168,8 +168,9 @@ local function collect()
     for bag = 0, last do
         for slot = 1, numSlots(bag) do
             local info = slotInfo(bag, slot)
-            if info and info.quality == poor and not info.hasNoValue and not info.isLocked
-               and not isProtected(info.itemID or itemIDFromLink(info.hyperlink)) then
+            local id = info and (info.itemID or itemIDFromLink(info.hyperlink))
+            if info and (info.quality == poor or isMarkedTrash(id)) and not info.hasNoValue and not info.isLocked
+               and not isProtected(id) then
                 list[#list + 1] = { bag = bag, slot = slot,
                                     value = sellPrice(info) * (info.stackCount or 1) }
             end
@@ -363,7 +364,7 @@ function V:SetTrash(link, state)
     db.trash[id] = state and true or nil
     if state and db.protected then db.protected[id] = nil end   -- a protected item is never trashed: unprotect it
     ns:Print(string.format("%s %s %s.", state and "Marked" or "Unmarked", link,
-        state and "as trash - the Trash button deletes it, also copies you pick up later" or "- the Trash button leaves it alone again"))
+        state and "as trash - auto sell sells it and the Trash button deletes it, also copies you pick up later" or "- auto sell and the Trash button leave it alone again"))
     setTrashShown(trashShown)   -- redo the highlights
 end
 

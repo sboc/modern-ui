@@ -305,7 +305,7 @@ local function bagWindowOptions()
         Check("iteminfo.sets", "Corner marker on items that belong to an equipment set"),
         Check("iteminfo.newGlow", "Outline new items (grouped bag window)"),
         Header("Vendor"),
-        Check("vendor.autoSellJunk", "Automatically sell gray (junk) items when a merchant opens"),
+        Check("vendor.autoSellJunk", "Automatically sell gray (junk) items and items marked as trash when a merchant opens"),
         Check("vendor.autoRepair", "Automatically repair when a repair merchant opens"),
         Check("vendor.guildRepair", "Pay for repairs from the guild bank when it allows it (own gold otherwise)"),
         Check("vendor.summary", "Print what was sold / repaired and for how much"),
@@ -323,7 +323,7 @@ local function bagWindowOptions()
         Text("The Trash button in your bags highlights gray items whose whole stack is worth less than this (items with no vendor value count as 0); each further click deletes one of them, cheapest stack first. Right-click stops. Protected items are skipped."),
         Check("vendor.trashShards", "Trash button: also delete soul shards outside your soul bag (warlocks)"),
         Text("Only while a soul bag is equipped. The soul bag fills first, so shards in other bags are the extras; they are deleted before any gray item."),
-        Text("Mark an item as trash: Ctrl+Alt+click it in your bags. The Trash button then highlights and deletes it whatever its quality or price, also copies you pick up later. Ctrl+Alt+click again to remove. Also: /mui trash [shift-click an item]."),
+        Text("Mark an item as trash: Ctrl+Alt+click it in your bags. Auto sell then sells it and the Trash button highlights and deletes it, whatever its quality or price, also copies you pick up later. Ctrl+Alt+click again to remove. Also: /mui trash [shift-click an item]."),
         Text("Marked as trash now (reopen this page to refresh): " .. (function()
             local names = ns.Vendor and ns.Vendor.TrashNames and ns.Vendor.TrashNames() or {}
             return #names > 0 and table.concat(names, ", ") or "none"
