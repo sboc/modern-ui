@@ -323,7 +323,13 @@ local function bagWindowOptions()
         Text("The Trash button in your bags highlights gray items whose whole stack is worth less than this (items with no vendor value count as 0); each further click deletes one of them, cheapest stack first. Right-click stops. Protected items are skipped."),
         Check("vendor.trashShards", "Trash button: also delete soul shards outside your soul bag (warlocks)"),
         Text("Only while a soul bag is equipped. The soul bag fills first, so shards in other bags are the extras; they are deleted before any gray item."),
+        Text("Mark an item as trash: Ctrl+Alt+click it in your bags. The Trash button then highlights and deletes it whatever its quality or price, also copies you pick up later. Ctrl+Alt+click again to remove. Also: /mui trash [shift-click an item]."),
+        Text("Marked as trash now (reopen this page to refresh): " .. (function()
+            local names = ns.Vendor and ns.Vendor.TrashNames and ns.Vendor.TrashNames() or {}
+            return #names > 0 and table.concat(names, ", ") or "none"
+        end)()),
         Button("Clear protected items", function() if ns.Vendor then ns.Vendor:ClearProtected(); ns:Print("Cleared protected items.") end end),
+        Button("Clear items marked as trash", function() if ns.Vendor then ns.Vendor:ClearTrash(); ns:Print("Cleared items marked as trash.") end end),
     }
 end
 

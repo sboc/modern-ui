@@ -170,7 +170,7 @@ ns.defaults = {
     custombags = { enabled = false, bank = true, columns = 10, slotSize = 36, showNew = true,
                    sections = {}, pins = {}, collapsed = {} },   -- bank: grouped bank window too; own sections, itemID -> section key, collapsed sections
     vendor = { autoSellJunk = true, autoRepair = true, guildRepair = false, summary = true, protected = {}, trashMax = 100,
-               trashShards = false },   -- protected: itemID -> true, selling asks first; trashMax: Trash button marks and deletes gray stacks worth less (copper); trashShards: it also marks soul shards outside the soul bag
+               trashShards = false, trash = {} },   -- protected: itemID -> true, selling asks first; trashMax: Trash button marks and deletes gray stacks worth less (copper); trashShards: it also marks soul shards outside the soul bag; trash: itemID -> true, it also marks those
     consumables = {
         enabled = true,    -- keep the Food / Water / Health Potion macros pointed at the best item in the bags
         announce = true,   -- print when the pick changes

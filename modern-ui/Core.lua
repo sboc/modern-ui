@@ -783,6 +783,12 @@ SlashCmdList["MODERNUI"] = function(msg)
         else ns:Print("Usage: /mui protect [shift-click an item]  (or Alt+click an item in your bags)") end
         return
     end
+    if cmd == "trash" then
+        local link = (msg or ""):match("(|c%x+|Hitem:.-|h%[.-%]|h|r)") or (msg or ""):match("(item:%d+)")
+        if link and ns.Vendor then ns.Vendor:SetTrash(link)
+        else ns:Print("Usage: /mui trash [shift-click an item]  (or Ctrl+Alt+click an item in your bags)") end
+        return
+    end
     if cmd == "" or cmd == "config" or cmd == "options" then
         ns.Config:Toggle()
     elseif cmd == "wizard" or cmd == "setup" then

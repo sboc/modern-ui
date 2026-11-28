@@ -65,6 +65,7 @@ function V:SetProtected(link, state)
     db.protected = db.protected or {}
     if state == nil then state = not db.protected[id] end
     db.protected[id] = state and true or nil
+    if state and db.trash then db.trash[id] = nil end   -- protection wins over a trash mark: drop it
     ns:Print(string.format("%s %s %s.", state and "Protected" or "Unprotected", link,
         state and "- selling it will ask for confirmation" or "- it can be sold normally again"))
 end
@@ -73,12 +74,27 @@ function V:ClearProtected()
     if ns.db then cfg().protected = {} end
 end
 
-local function protectedList()
+local function nameList(ids)
     local out = {}
-    for id in pairs((ns.db and cfg().protected) or {}) do out[#out + 1] = itemName(nil, id) end
+    for id in pairs(ids or {}) do out[#out + 1] = itemName(nil, id) end
     table.sort(out)
     return out
 end
+
+local function protectedList() return nameList(ns.db and cfg().protected) end
+
+-- items marked as trash: itemID -> true. The Trash button marks and deletes them whatever their quality or price,
+-- also copies picked up later.
+local function isMarkedTrash(itemID)
+    local db = ns.db and cfg()
+    return itemID and db and db.trash and db.trash[itemID] or false
+end
+
+function V:ClearTrash()
+    if ns.db then cfg().trash = {} end
+end
+
+local function trashMarkList() return nameList(ns.db and cfg().trash) end
 
 local lastBag = (NUM_BAG_SLOTS or 4) + (NUM_REAGENTBAG_SLOTS or 1)
 
@@ -291,12 +307,16 @@ local function strayShard(bag, info)
     return hasSoulBag()
 end
 
--- value of a stack the Trash button marks, nil for one it leaves alone; stray soul shards count as 0
+-- value of a stack the Trash button marks, nil for one it leaves alone; stray soul shards count as 0, marked items
+-- not cached yet too. Second return: "shard" or "marked" for those, nil for a cheap gray stack.
 local function trashValue(bag, info, limit)
-    if strayShard(bag, info) then return 0, true end
+    if strayShard(bag, info) then return 0, "shard" end
+    if not info then return end
+    local id = info.itemID or itemIDFromLink(info.hyperlink)
+    if isProtected(id) then return end
+    if isMarkedTrash(id) then return stackValue(info) or 0, "marked" end
     local poor = (Enum and Enum.ItemQuality and Enum.ItemQuality.Poor) or 0
-    if not (info and info.quality == poor) then return end
-    if isProtected(info.itemID or itemIDFromLink(info.hyperlink)) then return end
+    if info.quality ~= poor then return end
     local value = stackValue(info)
     if value and value < limit then return value end
 end
@@ -307,9 +327,9 @@ local function trashList(limit)
     for bag = 0, lastBag do
         for slot = 1, numSlots(bag) do
             local info = slotInfo(bag, slot)
-            local value, shard = trashValue(bag, info, limit)
+            local value, kind = trashValue(bag, info, limit)
             if value then
-                list[#list + 1] = { bag = bag, slot = slot, value = value, info = info, order = #list, shard = shard }
+                list[#list + 1] = { bag = bag, slot = slot, value = value, info = info, order = #list, kind = kind }
             end
         end
     end
@@ -332,6 +352,19 @@ local function setTrashShown(state)
     for _, b in ipairs(trashButtons) do b:SetSelected(state) end
     if ns.CustomBags and ns.CustomBags.RequestAll then ns.CustomBags.RequestAll() end
     if ns.BagWindows and ns.BagWindows.RequestRestyle then ns.BagWindows.RequestRestyle() end
+end
+
+function V:SetTrash(link, state)
+    local id = itemIDFromLink(link)
+    if not id or not ns.db then return end
+    local db = cfg()
+    db.trash = db.trash or {}
+    if state == nil then state = not db.trash[id] end
+    db.trash[id] = state and true or nil
+    if state and db.protected then db.protected[id] = nil end   -- a protected item is never trashed: unprotect it
+    ns:Print(string.format("%s %s %s.", state and "Marked" or "Unmarked", link,
+        state and "as trash - the Trash button deletes it, also copies you pick up later" or "- the Trash button leaves it alone again"))
+    setTrashShown(trashShown)   -- redo the highlights
 end
 
 local function noTrashText(limit)
@@ -367,7 +400,7 @@ local function deleteCheapest(limit)
     local left = #list - 1
     ns:Print(string.format("Deleted %s%s%s. %s", it.info.hyperlink or itemName(nil, id),
         (it.info.stackCount or 1) > 1 and (" x" .. it.info.stackCount) or "",
-        it.shard and " (outside your soul bag)" or (" (" .. money(it.value) .. ")"),
+        it.kind == "shard" and " (outside your soul bag)" or (" (" .. money(it.value) .. ")"),
         left > 0 and string.format("%d left.", left) or "None left."))
     if left == 0 then setTrashShown(false) end
 end
@@ -384,19 +417,23 @@ function V:TrashClick(button)
     end
     local list = trashList(limit)
     if #list == 0 then ns:Print(noTrashText(limit)); return end
-    local shards = 0
+    local n = { shard = 0, marked = 0, gray = 0 }
     for _, entry in ipairs(list) do
-        if entry.shard then shards = shards + 1 end
+        local k = entry.kind or "gray"
+        n[k] = n[k] + 1
     end
-    local gray = #list - shards
+    local gray, marked, shards = n.gray, n.marked, n.shard
     local parts = {}
+    if marked > 0 then
+        parts[#parts + 1] = string.format("%d stack%s marked as trash", marked, marked == 1 and "" or "s")
+    end
     if gray > 0 then
         parts[#parts + 1] = string.format("%d gray item stack%s worth less than %s", gray, gray == 1 and "" or "s", money(limit))
     end
     if shards > 0 then
         parts[#parts + 1] = string.format("%d soul shard%s outside your soul bag", shards, shards == 1 and "" or "s")
     end
-    ns:Print(table.concat(parts, " and ") .. " highlighted. Click Trash again to delete the cheapest one (one per click); right-click to stop.")
+    ns:Print(table.concat(parts, ", ") .. " highlighted. Click Trash again to delete the cheapest one (one per click); right-click to stop.")
     setTrashShown(true)
 end
 
@@ -411,6 +448,7 @@ function V:CreateTrashButton(parent, w, h)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Delete gray items", 1, 1, 1)
         GameTooltip:AddLine("Worth less than " .. money(limit) .. " per stack.", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Also items marked as trash (Ctrl+Alt+click in your bags).", 0.7, 0.7, 0.7)
         if ns.db and cfg().trashShards then
             GameTooltip:AddLine("Also soul shards outside your soul bag (deleted first).", 0.7, 0.7, 0.7)
         end
@@ -547,9 +585,8 @@ function V:Init()
 
     if _G.HandleModifiedItemClick then
         hooksecurefunc("HandleModifiedItemClick", function(link)
-            if link and IsAltKeyDown() and not IsShiftKeyDown() and not IsControlKeyDown()
-               and ns.db and bagButtonUnderMouse() then
-                V:SetProtected(link)
+            if link and IsAltKeyDown() and not IsShiftKeyDown() and ns.db and bagButtonUnderMouse() then
+                if IsControlKeyDown() then V:SetTrash(link) else V:SetProtected(link) end
             end
         end)
     end
@@ -560,6 +597,8 @@ function V:Init()
             local id = data and data.id
             if id and isProtected(id) then
                 pcall(function() tip:AddLine("Protected from selling (Alt+click to change)", 1, 0.82, 0.2) end)
+            elseif id and isMarkedTrash(id) then
+                pcall(function() tip:AddLine("Marked as trash (Ctrl+Alt+click to change)", 1, 0.4, 0.3) end)
             end
         end)
     end
@@ -575,4 +614,5 @@ function V:Init()
 end
 
 V.ProtectedNames = protectedList
+V.TrashNames = trashMarkList
 V.SellPrice = sellPrice
