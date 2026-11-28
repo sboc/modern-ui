@@ -321,6 +321,8 @@ local function bagWindowOptions()
             return (g > 0 and (g .. "g ") or "") .. (sv > 0 and (sv .. "s") or "")
         end),
         Text("The Trash button in your bags highlights gray items whose whole stack is worth less than this (items with no vendor value count as 0); each further click deletes one of them, cheapest stack first. Right-click stops. Protected items are skipped."),
+        Check("vendor.trashShards", "Trash button: also delete soul shards outside your soul bag (warlocks)"),
+        Text("Only while a soul bag is equipped. The soul bag fills first, so shards in other bags are the extras; they are deleted before any gray item."),
         Button("Clear protected items", function() if ns.Vendor then ns.Vendor:ClearProtected(); ns:Print("Cleared protected items.") end end),
     }
 end

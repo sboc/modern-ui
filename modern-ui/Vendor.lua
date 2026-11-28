@@ -251,7 +251,49 @@ local function stackValue(info)
     return price * (info.stackCount or 1)
 end
 
-local function trashValue(info, limit)
+-- Soul shards outside a soul bag (vendor.trashShards): the soul bag fills first, so these are the extras. Only while
+-- a soul bag is equipped: without one every shard is outside it and none of them is extra.
+local SOUL_SHARD = 6265
+local SOUL_BAG_FAMILY = 4   -- bag family bit of soul bags
+
+local function soulFamily(family)
+    return type(family) == "number" and math.floor(family / SOUL_BAG_FAMILY) % 2 == 1
+end
+
+-- the container's family first; when that reads 0, the family of the bag item equipped in that slot
+local function isSoulBag(bag)
+    if bag == 0 then return false end   -- the backpack has no family
+    local ok, soul = pcall(function()
+        local free = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
+        local _, family = free(bag)
+        if soulFamily(family) then return true end
+        local toInv = (C_Container and C_Container.ContainerIDToInventoryID) or ContainerIDToInventoryID
+        local id = toInv and GetInventoryItemID("player", toInv(bag))
+        local getFamily = (C_Item and C_Item.GetItemFamily) or GetItemFamily
+        return id and getFamily and soulFamily(getFamily(id)) or false
+    end)
+    return ok and soul or false
+end
+
+-- every bag slot, the extra fifth one included (on this client it can hold the soul bag)
+local function hasSoulBag()
+    for b = 1, lastBag do
+        if isSoulBag(b) then return true end
+    end
+    return false
+end
+
+local function isShard(info) return info and info.itemID == SOUL_SHARD end
+
+local function strayShard(bag, info)
+    if not (cfg().trashShards and isShard(info)) then return false end
+    if not (bag and bag >= 0 and bag <= lastBag) or isSoulBag(bag) then return false end
+    return hasSoulBag()
+end
+
+-- value of a stack the Trash button marks, nil for one it leaves alone; stray soul shards count as 0
+local function trashValue(bag, info, limit)
+    if strayShard(bag, info) then return 0, true end
     local poor = (Enum and Enum.ItemQuality and Enum.ItemQuality.Poor) or 0
     if not (info and info.quality == poor) then return end
     if isProtected(info.itemID or itemIDFromLink(info.hyperlink)) then return end
@@ -265,9 +307,9 @@ local function trashList(limit)
     for bag = 0, lastBag do
         for slot = 1, numSlots(bag) do
             local info = slotInfo(bag, slot)
-            local value = trashValue(info, limit)
+            local value, shard = trashValue(bag, info, limit)
             if value then
-                list[#list + 1] = { bag = bag, slot = slot, value = value, info = info, order = #list }
+                list[#list + 1] = { bag = bag, slot = slot, value = value, info = info, order = #list, shard = shard }
             end
         end
     end
@@ -282,7 +324,7 @@ function V:TrashShown() return trashShown end
 
 -- checked live, so the marks follow the items when the bags change
 function V:IsTrash(bag, slot)
-    return trashValue(slotInfo(bag, slot), cfg().trashMax or 0) ~= nil
+    return trashValue(bag, slotInfo(bag, slot), cfg().trashMax or 0) ~= nil
 end
 
 local function setTrashShown(state)
@@ -323,8 +365,9 @@ local function deleteCheapest(limit)
         return
     end
     local left = #list - 1
-    ns:Print(string.format("Deleted %s%s (%s). %s", it.info.hyperlink or itemName(nil, id),
-        (it.info.stackCount or 1) > 1 and (" x" .. it.info.stackCount) or "", money(it.value),
+    ns:Print(string.format("Deleted %s%s%s. %s", it.info.hyperlink or itemName(nil, id),
+        (it.info.stackCount or 1) > 1 and (" x" .. it.info.stackCount) or "",
+        it.shard and " (outside your soul bag)" or (" (" .. money(it.value) .. ")"),
         left > 0 and string.format("%d left.", left) or "None left."))
     if left == 0 then setTrashShown(false) end
 end
@@ -336,10 +379,24 @@ function V:TrashClick(button)
         return
     end
     if trashShown then return deleteCheapest(limit) end
-    local count = #trashList(limit)
-    if count == 0 then ns:Print(noTrashText(limit)); return end
-    ns:Print(string.format("%d gray item stack%s worth less than %s highlighted. Click Trash again to delete the cheapest one (one per click); right-click to stop.",
-        count, count == 1 and "" or "s", money(limit)))
+    if cfg().trashShards and not hasSoulBag() then
+        ns:Print("No soul bag found in your bags, so soul shards are left alone.")
+    end
+    local list = trashList(limit)
+    if #list == 0 then ns:Print(noTrashText(limit)); return end
+    local shards = 0
+    for _, entry in ipairs(list) do
+        if entry.shard then shards = shards + 1 end
+    end
+    local gray = #list - shards
+    local parts = {}
+    if gray > 0 then
+        parts[#parts + 1] = string.format("%d gray item stack%s worth less than %s", gray, gray == 1 and "" or "s", money(limit))
+    end
+    if shards > 0 then
+        parts[#parts + 1] = string.format("%d soul shard%s outside your soul bag", shards, shards == 1 and "" or "s")
+    end
+    ns:Print(table.concat(parts, " and ") .. " highlighted. Click Trash again to delete the cheapest one (one per click); right-click to stop.")
     setTrashShown(true)
 end
 
@@ -354,6 +411,9 @@ function V:CreateTrashButton(parent, w, h)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Delete gray items", 1, 1, 1)
         GameTooltip:AddLine("Worth less than " .. money(limit) .. " per stack.", 0.7, 0.7, 0.7)
+        if ns.db and cfg().trashShards then
+            GameTooltip:AddLine("Also soul shards outside your soul bag (deleted first).", 0.7, 0.7, 0.7)
+        end
         GameTooltip:AddLine("Click: highlight them, then each click deletes the cheapest stack.", 0.7, 0.7, 0.7)
         GameTooltip:AddLine("Right-click: stop. Change the limit in Config > Bag Windows.", 0.7, 0.7, 0.7)
         GameTooltip:Show()
